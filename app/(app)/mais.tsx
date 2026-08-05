@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Calendar, History, Bell, Settings, LogOut, ChevronRight } from 'lucide-react-native';
+import { Building2, Calendar, History, Bell, Settings, LogOut, ChevronRight } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 
 function iniciais(nome: string) {
@@ -38,6 +38,7 @@ export default function MaisScreen() {
         </View>
       </View>
 
+      <MenuRow icon={Building2} label="Empresas" tint="#60a5fa" onPress={() => router.push('/(app)/empresas')} />
       <MenuRow icon={Calendar} label="Calendário" tint="#a78bfa" onPress={() => router.push('/(app)/calendario')} />
       <MenuRow icon={History} label="Histórico" tint="#60a5fa" onPress={() => router.push('/(app)/historico')} />
       <MenuRow icon={Bell} label="Alertas" tint="#facc15" onPress={() => router.push('/(app)/notificacoes')} />

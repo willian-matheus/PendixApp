@@ -8,6 +8,7 @@ export type PendixAppUser = {
   id: string;
   nome: string;
   email: string;
+  telefone?: string;
   role: string;
   officeId?: string;
   companyId?: string;
@@ -22,6 +23,7 @@ type AuthContextType = {
   error: string | null;
   signIn: (email: string, senha: string) => Promise<void>;
   signOut: () => Promise<void>;
+  updateProfile: (fields: { nome?: string; telefone?: string }) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -39,7 +41,10 @@ async function fetchUserProfile(userId: string, authEmail: string): Promise<Pend
     if (error || !data || !ROLES_VALIDOS.includes(data.role)) fonte = 'metadata';
 
     let id: string, nome: string, role: string, escritorio_id: string | null,
-      empresa_id: string | null, telas: string[], empresa_ids: string[];
+      empresa_id: string | null, telas: string[], empresa_ids: string[], telefone: string | undefined;
+
+    const { data: authData } = await supabase.auth.getUser();
+    const meta = authData?.user?.user_metadata || {};
 
     if (fonte === 'tabela') {
       id = data.id;
@@ -49,9 +54,8 @@ async function fetchUserProfile(userId: string, authEmail: string): Promise<Pend
       empresa_id = data.empresa_id;
       telas = data.telas || ['Dashboard'];
       empresa_ids = data.empresa_ids || [];
+      telefone = data.telefone || meta.telefone || undefined;
     } else {
-      const { data: authData } = await supabase.auth.getUser();
-      const meta = authData?.user?.user_metadata || {};
       id = userId;
       nome = meta.nome || authEmail;
       role = meta.role || 'dono_escritorio';
@@ -59,6 +63,7 @@ async function fetchUserProfile(userId: string, authEmail: string): Promise<Pend
       empresa_id = meta.empresa_id || null;
       telas = meta.telas || [];
       empresa_ids = meta.empresa_ids || [];
+      telefone = meta.telefone || undefined;
     }
 
     let plano: PlanType = 'normal';
@@ -68,7 +73,7 @@ async function fetchUserProfile(userId: string, authEmail: string): Promise<Pend
     }
 
     return {
-      id, nome, email: authEmail, role,
+      id, nome, email: authEmail, telefone, role,
       officeId: escritorio_id ?? undefined,
       companyId: empresa_id ?? undefined,
       telas, companyIds: empresa_ids, plano,
@@ -146,7 +151,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  const value = useMemo(() => ({ user, loading, error, signIn, signOut }), [user, loading, error]);
+  const updateProfile = async (fields: { nome?: string; telefone?: string }) => {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) throw new Error('Sessão inválida.');
+
+    const { error: metaError } = await supabase.auth.updateUser({ data: { ...fields } });
+    if (metaError) throw metaError;
+
+    try {
+      await supabase.from('usuarios').update(fields).eq('id', authUser.id);
+    } catch {
+      // best-effort — nem toda conta tem registro na tabela `usuarios`
+    }
+
+    const profile = await fetchUserProfile(authUser.id, authUser.email || '');
+    if (profile) setUser(profile);
+  };
+
+  const value = useMemo(() => ({ user, loading, error, signIn, signOut, updateProfile }), [user, loading, error]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

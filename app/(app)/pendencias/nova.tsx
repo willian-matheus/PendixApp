@@ -1,42 +1,101 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { X, Check } from 'lucide-react-native';
-import { getPendixClientes, postPendixPendencia, type PendixCliente } from '@/services/pendix';
+import { X, Check, Paperclip } from 'lucide-react-native';
+import { getPendixClientes, postPendixPendencia, type PendixCliente, type PendixPrioridade } from '@/services/pendix';
+import { getEmpresas, getVinculosEmpresa, type Empresa } from '@/services/empresasLocal';
+import { salvarPendenciaExtra, type FrequenciaCobranca } from '@/services/pendenciasExtra';
+import { Select } from '@/components/Select';
+import { Input } from '@/components/Input';
+import { Button } from '@/components/Button';
+import { Loader } from '@/components/Loader';
+
+const PRIORIDADE_OPTS: { value: PendixPrioridade; label: string }[] = [
+  { value: 'baixa', label: 'Baixa' },
+  { value: 'media', label: 'Média' },
+  { value: 'alta', label: 'Alta' },
+  { value: 'urgente', label: 'Urgente' },
+];
+
+const FREQUENCIA_OPTS: { value: FrequenciaCobranca; label: string }[] = [
+  { value: 'uma_vez', label: 'Uma vez' },
+  { value: 'diaria', label: 'Diária' },
+  { value: 'a_cada_2_dias', label: 'A cada 2 dias' },
+  { value: 'semanal', label: 'Semanal' },
+  { value: 'quinzenal', label: 'Quinzenal' },
+  { value: 'mensal', label: 'Mensal' },
+];
 
 export default function NovaPendenciaScreen() {
   const router = useRouter();
   const [clientes, setClientes] = useState<PendixCliente[]>([]);
-  const [clienteId, setClienteId] = useState<string | null>(null);
-  const [nomeDocumento, setNomeDocumento] = useState('');
-  const [competencia, setCompetencia] = useState('');
-  const [dataLimite, setDataLimite] = useState('');
-  const [loadingClientes, setLoadingClientes] = useState(true);
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [vinculos, setVinculos] = useState<Record<string, string>>({});
+  const [loadingDados, setLoadingDados] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const [tipo, setTipo] = useState<'cliente' | 'empresa'>('cliente');
+  const [clienteId, setClienteId] = useState<string | null>(null);
+  const [empresaId, setEmpresaId] = useState<string | null>(null);
+  const [todosClientesEmpresa, setTodosClientesEmpresa] = useState(false);
+
+  const [titulo, setTitulo] = useState('');
+  const [descricao, setDescricao] = useState('');
+  const [prioridade, setPrioridade] = useState<PendixPrioridade>('media');
+  const [competencia, setCompetencia] = useState('');
+  const [dataLimite, setDataLimite] = useState('');
+  const [dataInicialCobranca, setDataInicialCobranca] = useState('');
+  const [frequencia, setFrequencia] = useState<FrequenciaCobranca>('uma_vez');
+  const [anexoNome, setAnexoNome] = useState('');
+  const [observacaoInterna, setObservacaoInterna] = useState('');
+
   useEffect(() => {
-    getPendixClientes()
-      .then(setClientes)
-      .catch((err) => console.error('[NovaPendencia] Falha ao carregar clientes:', err))
-      .finally(() => setLoadingClientes(false));
+    Promise.all([getPendixClientes(), getEmpresas(), getVinculosEmpresa()])
+      .then(([cli, emp, vinc]) => { setClientes(cli); setEmpresas(emp); setVinculos(vinc); })
+      .catch((err) => console.error('[NovaPendencia] Falha ao carregar dados:', err))
+      .finally(() => setLoadingDados(false));
   }, []);
 
+  const clientesDaEmpresa = empresaId ? clientes.filter((c) => vinculos[c.id] === empresaId) : [];
+
   async function handleCriar() {
-    if (!clienteId) { Alert.alert('Falta o cliente', 'Selecione um cliente.'); return; }
-    if (!nomeDocumento.trim()) { Alert.alert('Falta o documento', 'Informe o nome do documento.'); return; }
+    if (!titulo.trim()) { Alert.alert('Falta o título', 'Informe o título da pendência.'); return; }
     if (!/^\d{4}-\d{2}$/.test(competencia)) { Alert.alert('Competência inválida', 'Use o formato AAAA-MM, ex: 2026-08.'); return; }
-    if (dataLimite && !/^\d{4}-\d{2}-\d{2}$/.test(dataLimite)) { Alert.alert('Prazo inválido', 'Use o formato AAAA-MM-DD, ex: 2026-08-15.'); return; }
+    if (dataLimite && !/^\d{4}-\d{2}-\d{2}$/.test(dataLimite)) { Alert.alert('Vencimento inválido', 'Use o formato AAAA-MM-DD, ex: 2026-08-15.'); return; }
+
+    let clienteIds: string[] = [];
+    if (tipo === 'cliente') {
+      if (!clienteId) { Alert.alert('Falta o cliente', 'Selecione um cliente.'); return; }
+      clienteIds = [clienteId];
+    } else {
+      if (!empresaId) { Alert.alert('Falta a empresa', 'Selecione uma empresa.'); return; }
+      if (todosClientesEmpresa) {
+        if (clientesDaEmpresa.length === 0) { Alert.alert('Sem clientes', 'Essa empresa ainda não tem clientes vinculados.'); return; }
+        clienteIds = clientesDaEmpresa.map((c) => c.id);
+      } else {
+        if (!clienteId) { Alert.alert('Falta o cliente', 'Selecione um cliente específico da empresa.'); return; }
+        clienteIds = [clienteId];
+      }
+    }
 
     setSubmitting(true);
     try {
-      await postPendixPendencia({
-        escritorio_id: '',
-        cliente_id: clienteId,
-        nome_documento: nomeDocumento.trim(),
-        competencia,
-        status: 'pendente',
-        data_limite: dataLimite || undefined,
-      });
+      for (const cid of clienteIds) {
+        const pendencia = await postPendixPendencia({
+          escritorio_id: '',
+          cliente_id: cid,
+          nome_documento: titulo.trim(),
+          competencia,
+          status: 'pendente',
+          data_limite: dataLimite || undefined,
+          observacoes: observacaoInterna || undefined,
+        });
+        await salvarPendenciaExtra(pendencia.id, {
+          tipo, empresaId: empresaId ?? undefined, descricao: descricao || undefined,
+          prioridade, dataInicialCobranca: dataInicialCobranca || undefined,
+          frequencia, anexoNome: anexoNome || undefined,
+        });
+      }
       router.back();
     } catch (err: any) {
       Alert.alert('Erro', err.message || 'Não foi possível criar a pendência.');
@@ -54,65 +113,126 @@ export default function NovaPendenciaScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}>
-        <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Cliente</Text>
-        {loadingClientes ? (
-          <ActivityIndicator color="#a78bfa" style={{ marginVertical: 12 }} />
-        ) : (
-          <View className="gap-2 mb-5">
-            {clientes.map((c) => {
-              const active = c.id === clienteId;
-              return (
-                <Pressable
-                  key={c.id}
-                  onPress={() => setClienteId(c.id)}
-                  className={`flex-row items-center justify-between px-4 py-3 rounded-xl border ${active ? 'bg-purple-600/20 border-purple-500/50' : 'bg-white/[0.03] border-white/10'}`}
-                >
-                  <Text className={`text-sm ${active ? 'text-white font-semibold' : 'text-gray-400'}`}>{c.nome}</Text>
-                  {active && <Check size={15} color="#a78bfa" />}
-                </Pressable>
-              );
-            })}
-            {clientes.length === 0 && <Text className="text-gray-600 text-xs">Nenhum cliente cadastrado.</Text>}
-          </View>
-        )}
+      {loadingDados ? (
+        <Loader />
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          <Select
+            label="Tipo"
+            value={tipo}
+            onChange={(v) => { setTipo(v); setClienteId(null); setEmpresaId(null); setTodosClientesEmpresa(false); }}
+            options={[{ value: 'cliente', label: 'Cliente' }, { value: 'empresa', label: 'Empresa' }]}
+          />
 
-        <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Documento</Text>
-        <TextInput
-          value={nomeDocumento}
-          onChangeText={setNomeDocumento}
-          placeholder="Ex: Extrato Bancário"
-          placeholderTextColor="#4b5563"
-          className="bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm mb-5"
-        />
+          {tipo === 'cliente' ? (
+            <View className="mb-5">
+              <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Cliente</Text>
+              <View className="gap-2">
+                {clientes.map((c) => {
+                  const active = c.id === clienteId;
+                  return (
+                    <Pressable
+                      key={c.id}
+                      onPress={() => setClienteId(c.id)}
+                      className={`flex-row items-center justify-between px-4 py-3 rounded-xl border ${active ? 'bg-purple-600/20 border-purple-500/50' : 'bg-white/[0.03] border-white/10'}`}
+                    >
+                      <Text className={`text-sm ${active ? 'text-white font-semibold' : 'text-gray-400'}`}>{c.nome}</Text>
+                      {active && <Check size={15} color="#a78bfa" />}
+                    </Pressable>
+                  );
+                })}
+                {clientes.length === 0 && <Text className="text-gray-600 text-xs">Nenhum cliente cadastrado.</Text>}
+              </View>
+            </View>
+          ) : (
+            <>
+              <View className="mb-5">
+                <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Empresa</Text>
+                <View className="gap-2">
+                  {empresas.map((e) => {
+                    const active = e.id === empresaId;
+                    return (
+                      <Pressable
+                        key={e.id}
+                        onPress={() => { setEmpresaId(e.id); setClienteId(null); }}
+                        className={`flex-row items-center justify-between px-4 py-3 rounded-xl border ${active ? 'bg-purple-600/20 border-purple-500/50' : 'bg-white/[0.03] border-white/10'}`}
+                      >
+                        <Text className={`text-sm ${active ? 'text-white font-semibold' : 'text-gray-400'}`}>{e.nome}</Text>
+                        {active && <Check size={15} color="#a78bfa" />}
+                      </Pressable>
+                    );
+                  })}
+                  {empresas.length === 0 && <Text className="text-gray-600 text-xs">Nenhuma empresa cadastrada.</Text>}
+                </View>
+              </View>
 
-        <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Competência (AAAA-MM)</Text>
-        <TextInput
-          value={competencia}
-          onChangeText={setCompetencia}
-          placeholder="2026-08"
-          placeholderTextColor="#4b5563"
-          className="bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm mb-5"
-        />
+              {!!empresaId && (
+                <View className="mb-5">
+                  <Select
+                    label="Clientes da empresa"
+                    value={todosClientesEmpresa ? 'todos' : 'especifico'}
+                    onChange={(v) => setTodosClientesEmpresa(v === 'todos')}
+                    options={[{ value: 'especifico', label: 'Cliente específico' }, { value: 'todos', label: 'Todos os clientes' }]}
+                  />
+                  {!todosClientesEmpresa && (
+                    <View className="gap-2 mt-1">
+                      {clientesDaEmpresa.map((c) => {
+                        const active = c.id === clienteId;
+                        return (
+                          <Pressable
+                            key={c.id}
+                            onPress={() => setClienteId(c.id)}
+                            className={`flex-row items-center justify-between px-4 py-3 rounded-xl border ${active ? 'bg-purple-600/20 border-purple-500/50' : 'bg-white/[0.03] border-white/10'}`}
+                          >
+                            <Text className={`text-sm ${active ? 'text-white font-semibold' : 'text-gray-400'}`}>{c.nome}</Text>
+                            {active && <Check size={15} color="#a78bfa" />}
+                          </Pressable>
+                        );
+                      })}
+                      {clientesDaEmpresa.length === 0 && (
+                        <Text className="text-gray-600 text-xs">Nenhum cliente vinculado a esta empresa ainda.</Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+              )}
+            </>
+          )}
 
-        <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Prazo (AAAA-MM-DD, opcional)</Text>
-        <TextInput
-          value={dataLimite}
-          onChangeText={setDataLimite}
-          placeholder="2026-08-15"
-          placeholderTextColor="#4b5563"
-          className="bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm mb-7"
-        />
+          <Input label="Título da pendência" value={titulo} onChangeText={setTitulo} placeholder="Ex: Extrato Bancário" />
+          <Input
+            label="Descrição" value={descricao} onChangeText={setDescricao} placeholder="Detalhes sobre o que é necessário..."
+            multiline numberOfLines={3} style={{ textAlignVertical: 'top', minHeight: 70 }}
+          />
 
-        <Pressable
-          onPress={handleCriar}
-          disabled={submitting}
-          className="bg-purple-600 rounded-xl py-3.5 items-center"
-          style={{ opacity: submitting ? 0.6 : 1 }}
-        >
-          <Text className="text-white font-bold text-sm">{submitting ? 'Criando...' : 'Criar pendência'}</Text>
-        </Pressable>
-      </ScrollView>
+          <Select label="Prioridade" value={prioridade} onChange={setPrioridade} options={PRIORIDADE_OPTS} />
+
+          <Input label="Competência (AAAA-MM)" value={competencia} onChangeText={setCompetencia} placeholder="2026-08" />
+          <Input label="Data de vencimento (AAAA-MM-DD, opcional)" value={dataLimite} onChangeText={setDataLimite} placeholder="2026-08-15" />
+          <Input label="Data inicial da cobrança (AAAA-MM-DD, opcional)" value={dataInicialCobranca} onChangeText={setDataInicialCobranca} placeholder="2026-08-01" />
+
+          <Select label="Frequência de cobrança" value={frequencia} onChange={setFrequencia} options={FREQUENCIA_OPTS} />
+
+          <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Anexo de exemplo</Text>
+          <Pressable
+            onPress={() => setAnexoNome(anexoNome ? '' : 'modelo-documento.pdf')}
+            className="flex-row items-center bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 mb-4"
+          >
+            <Paperclip size={14} color="#a78bfa" />
+            <Text className="text-sm text-gray-300 ml-2.5 flex-1">
+              {anexoNome || 'Toque para anexar um arquivo modelo'}
+            </Text>
+            {!!anexoNome && <X size={14} color="#6b7280" />}
+          </Pressable>
+
+          <Input
+            label="Observação interna" value={observacaoInterna} onChangeText={setObservacaoInterna} placeholder="Anotações visíveis só pra equipe..."
+            multiline numberOfLines={3} containerClassName="mb-7" style={{ textAlignVertical: 'top', minHeight: 70 }}
+          />
+
+          <Button label={submitting ? 'Criando...' : 'Criar pendência'} onPress={handleCriar} loading={submitting} />
+        </ScrollView>
+      )}
     </View>
   );
 }

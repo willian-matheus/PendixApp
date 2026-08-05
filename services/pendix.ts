@@ -353,11 +353,12 @@ export async function getPendixStats() {
   const applyFilter = (q: any) => (!isAdmin && eid ? q.eq('escritorio_id', eid) : q);
   const today = new Date().toISOString().slice(0, 10);
 
-  const [clientes, abertas, vencidas, hoje] = await Promise.all([
+  const [clientes, abertas, vencidas, hoje, concluidas] = await Promise.all([
     applyFilter(supabase.from('pendix_clientes').select('id', { count: 'exact', head: true }).eq('status', 'ativo')),
     applyFilter(supabase.from('pendix_pendencias').select('id', { count: 'exact', head: true }).in('status', ['pendente', 'em_analise'])),
     applyFilter(supabase.from('pendix_pendencias').select('id', { count: 'exact', head: true }).eq('status', 'pendente').lt('data_limite', today)),
     applyFilter(supabase.from('pendix_pendencias').select('id', { count: 'exact', head: true }).eq('status', 'recebido').gte('data_recebimento', today + 'T00:00:00Z')),
+    applyFilter(supabase.from('pendix_pendencias').select('id', { count: 'exact', head: true }).eq('status', 'recebido')),
   ]);
 
   return {
@@ -365,5 +366,16 @@ export async function getPendixStats() {
     pendenciasAbertas: abertas.count ?? 0,
     vencidas: vencidas.count ?? 0,
     recebidosHoje: hoje.count ?? 0,
+    pendenciasConcluidas: concluidas.count ?? 0,
   };
+}
+
+export async function getPendixPendenciasPorStatusEMes() {
+  const eid = sessionOfficeId();
+  const isAdmin = isSuperAdmin();
+  let q = supabase.from('pendix_pendencias').select('id, status, competencia, data_limite, created_at');
+  if (!isAdmin && eid) q = q.eq('escritorio_id', eid);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as { id: string; status: PendixPendenciaStatus; competencia: string; data_limite?: string; created_at: string }[];
 }

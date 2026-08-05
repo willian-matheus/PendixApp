@@ -47,6 +47,7 @@ export default function AppLayout() {
       <Tabs.Screen name="pendencias" options={{ tabBarIcon: ({ color, focused }) => <TabIcon Icon={ClipboardList} color={color} focused={focused} label="Pendências" /> }} />
       <Tabs.Screen name="clientes" options={{ tabBarIcon: ({ color, focused }) => <TabIcon Icon={Users} color={color} focused={focused} label="Clientes" /> }} />
       <Tabs.Screen name="mais" options={{ tabBarIcon: ({ color, focused }) => <TabIcon Icon={MoreHorizontal} color={color} focused={focused} label="Mais" /> }} />
+      <Tabs.Screen name="empresas" options={{ href: null }} />
       <Tabs.Screen name="calendario" options={{ href: null }} />
       <Tabs.Screen name="historico" options={{ href: null }} />
       <Tabs.Screen name="notificacoes" options={{ href: null }} />

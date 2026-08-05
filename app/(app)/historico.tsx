@@ -1,72 +1,100 @@
-import { useCallback, useState } from 'react';
-import { View, Text, SectionList, ActivityIndicator } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { View, Text, SectionList, ScrollView, Pressable } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import {
-  Send, MessageCircle, CheckCircle2, XCircle, AlertTriangle, Eye,
-  User as UserIcon, Ban, AlertCircle, FileText, Clock,
-} from 'lucide-react-native';
+import { Clock, CalendarRange, X } from 'lucide-react-native';
 import { getPendixHistorico, type PendixHistoricoEntry } from '@/services/pendix';
-
-const ACAO_CFG: Record<string, { label: string; fg: string; bg: string; icon: any }> = {
-  cobranca_enviada: { label: 'Cobrança enviada', fg: '#60a5fa', bg: 'rgba(96,165,250,0.15)', icon: Send },
-  resposta_enviada: { label: 'Resposta enviada', fg: '#60a5fa', bg: 'rgba(96,165,250,0.15)', icon: MessageCircle },
-  documento_aprovado: { label: 'Documento aprovado', fg: '#34d399', bg: 'rgba(52,211,153,0.15)', icon: CheckCircle2 },
-  documento_reprovado: { label: 'Documento reprovado', fg: '#f87171', bg: 'rgba(248,113,113,0.15)', icon: XCircle },
-  documento_parcial: { label: 'Documento parcial', fg: '#fb923c', bg: 'rgba(251,146,60,0.15)', icon: AlertTriangle },
-  documento_ilegivel: { label: 'Documento ilegível', fg: '#fbbf24', bg: 'rgba(251,191,36,0.15)', icon: AlertTriangle },
-  documento_em_revisao: { label: 'Em revisão da equipe', fg: '#fbbf24', bg: 'rgba(251,191,36,0.15)', icon: Eye },
-  escalado_para_humano: { label: 'Escalado para humano', fg: '#a78bfa', bg: 'rgba(167,139,250,0.15)', icon: UserIcon },
-  optout_registrado: { label: 'Cliente pediu para não contatar', fg: '#9ca3af', bg: 'rgba(156,163,175,0.15)', icon: Ban },
-  limite_reenvios_atingido: { label: 'Limite de reenvios atingido', fg: '#9ca3af', bg: 'rgba(156,163,175,0.15)', icon: Ban },
-  audio_sem_transcricao: { label: 'Áudio sem transcrição', fg: '#fbbf24', bg: 'rgba(251,191,36,0.15)', icon: AlertCircle },
-};
-const ACAO_DEFAULT = { fg: '#c084fc', bg: 'rgba(192,132,252,0.15)', icon: FileText };
-
-function cfgFor(acao: string) {
-  const cfg = ACAO_CFG[acao];
-  return cfg ?? { ...ACAO_DEFAULT, label: acao };
-}
-
-function daysLabel(iso: string) {
-  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-  if (d === 0) return 'Hoje';
-  if (d === 1) return 'Ontem';
-  return `${d} dias atrás`;
-}
+import { cfgFor, daysLabel } from '@/lib/historicoAcoes';
+import { Loader } from '@/components/Loader';
+import { EmptyState } from '@/components/EmptyState';
+import { BottomSheetModal } from '@/components/Modal';
+import { Input } from '@/components/Input';
+import { Button } from '@/components/Button';
 
 export default function HistoricoScreen() {
   const [historico, setHistorico] = useState<PendixHistoricoEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tipoFiltro, setTipoFiltro] = useState<string | null>(null);
+  const [dataModalOpen, setDataModalOpen] = useState(false);
+  const [dataDe, setDataDe] = useState('');
+  const [dataAte, setDataAte] = useState('');
 
   useFocusEffect(useCallback(() => {
     getPendixHistorico().then(setHistorico).catch((err) => console.error('[Histórico] Falha:', err)).finally(() => setLoading(false));
   }, []));
 
+  const tiposPresentes = useMemo(() => {
+    const set = new Set(historico.map((h) => h.acao));
+    return [...set];
+  }, [historico]);
+
+  const filtrado = useMemo(() => {
+    return historico.filter((h) => {
+      if (tipoFiltro && h.acao !== tipoFiltro) return false;
+      const dia = h.created_at.slice(0, 10);
+      if (dataDe && dia < dataDe) return false;
+      if (dataAte && dia > dataAte) return false;
+      return true;
+    });
+  }, [historico, tipoFiltro, dataDe, dataAte]);
+
   const groups: { title: string; data: PendixHistoricoEntry[] }[] = [];
   const byDate = new Map<string, PendixHistoricoEntry[]>();
-  for (const e of historico) {
+  for (const e of filtrado) {
     const date = new Date(e.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
     if (!byDate.has(date)) byDate.set(date, []);
     byDate.get(date)!.push(e);
   }
   byDate.forEach((data, title) => groups.push({ title, data }));
 
+  const filtroDataAtivo = !!dataDe || !!dataAte;
+
   return (
     <View className="flex-1 bg-pendix-bg" style={{ paddingTop: 60 }}>
-      <View className="px-5 mb-4">
-        <Text className="text-xl font-bold text-white">Histórico</Text>
-        <Text className="text-gray-500 text-xs mt-1">
-          {loading ? 'Carregando…' : `${historico.length} registro${historico.length !== 1 ? 's' : ''}`}
-        </Text>
+      <View className="flex-row items-center justify-between px-5 mb-1">
+        <View>
+          <Text className="text-xl font-bold text-white">Histórico</Text>
+          <Text className="text-gray-500 text-xs mt-1">
+            {loading ? 'Carregando…' : `${filtrado.length} registro${filtrado.length !== 1 ? 's' : ''}`}
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => setDataModalOpen(true)}
+          className={`w-10 h-10 rounded-xl items-center justify-center border ${filtroDataAtivo ? 'bg-purple-600 border-purple-600' : 'bg-white/[0.04] border-white/10'}`}
+        >
+          <CalendarRange size={16} color={filtroDataAtivo ? '#fff' : '#9ca3af'} />
+        </Pressable>
+      </View>
+
+      <View className="mt-3 mb-2 px-5">
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View className="flex-row gap-2">
+            <Pressable
+              onPress={() => setTipoFiltro(null)}
+              className={`px-3.5 py-2 rounded-lg border ${!tipoFiltro ? 'bg-purple-600 border-purple-600' : 'border-white/10'}`}
+            >
+              <Text className={`text-xs font-semibold ${!tipoFiltro ? 'text-white' : 'text-gray-500'}`}>Todos</Text>
+            </Pressable>
+            {tiposPresentes.map((acao) => {
+              const active = tipoFiltro === acao;
+              const cfg = cfgFor(acao);
+              return (
+                <Pressable
+                  key={acao}
+                  onPress={() => setTipoFiltro(acao)}
+                  className={`px-3.5 py-2 rounded-lg border ${active ? 'bg-purple-600 border-purple-600' : 'border-white/10'}`}
+                >
+                  <Text className={`text-xs font-semibold ${active ? 'text-white' : 'text-gray-500'}`}>{cfg.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </ScrollView>
       </View>
 
       {loading ? (
-        <ActivityIndicator color="#a78bfa" style={{ marginTop: 40 }} />
-      ) : historico.length === 0 ? (
-        <View className="items-center mt-10">
-          <Clock size={24} color="#374151" />
-          <Text className="text-gray-600 text-sm mt-3">Nenhum registro encontrado.</Text>
-        </View>
+        <Loader />
+      ) : groups.length === 0 ? (
+        <EmptyState icon={Clock} title="Nenhum registro encontrado." />
       ) : (
         <SectionList
           sections={groups}
@@ -102,6 +130,19 @@ export default function HistoricoScreen() {
           }}
         />
       )}
+
+      <BottomSheetModal visible={dataModalOpen} onClose={() => setDataModalOpen(false)} title="Filtrar por data" maxHeight="50%">
+        <Input label="De (AAAA-MM-DD)" value={dataDe} onChangeText={setDataDe} placeholder="2026-08-01" />
+        <Input label="Até (AAAA-MM-DD)" value={dataAte} onChangeText={setDataAte} placeholder="2026-08-31" />
+        <View className="flex-row gap-3 mt-2">
+          <View className="flex-1">
+            <Button label="Limpar" variant="outline" icon={X} onPress={() => { setDataDe(''); setDataAte(''); }} />
+          </View>
+          <View className="flex-1">
+            <Button label="Aplicar" onPress={() => setDataModalOpen(false)} />
+          </View>
+        </View>
+      </BottomSheetModal>
     </View>
   );
 }
