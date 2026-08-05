@@ -1,0 +1,369 @@
+import { supabase } from '@/lib/supabase';
+import { isSuperAdmin, sessionOfficeId } from '@/lib/session';
+
+// ── Types (espelham server/migrations/pendix/pendix_schema.sql + 021_pendix_agente_whatsapp.sql) ──
+
+export type PendixClienteStatus = 'ativo' | 'inativo' | 'suspenso';
+export type PendixClienteTipo = 'pessoa' | 'empresa';
+export type PendixRegime = 'simples_nacional' | 'lucro_presumido' | 'lucro_real' | 'mei';
+export type PendixPendenciaStatus = 'pendente' | 'recebido' | 'em_analise' | 'rejeitado' | 'cancelado';
+export type PendixNivelCobranca = 'amigavel' | 'lembrete' | 'urgente' | 'critico';
+export type PendixPrioridade = 'baixa' | 'media' | 'alta' | 'urgente';
+
+export interface PendixCliente {
+  id: string;
+  escritorio_id: string;
+  nome: string;
+  responsavel: string;
+  telefone: string;
+  email: string;
+  regime: PendixRegime;
+  status: PendixClienteStatus;
+  observacoes: string;
+  tipo?: PendixClienteTipo;
+  consentimento_whatsapp?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PendixPendencia {
+  id: string;
+  escritorio_id: string;
+  cliente_id: string;
+  documento_id?: string;
+  nome_documento: string;
+  competencia: string;
+  status: PendixPendenciaStatus;
+  arquivo_url?: string;
+  arquivo_nome?: string;
+  observacoes?: string;
+  data_limite?: string;
+  data_recebimento?: string;
+  nivel_cobranca_atual?: PendixNivelCobranca;
+  tentativas_reenvio?: number;
+  ultima_mensagem_enviada_em?: string;
+  requer_revisao_humana?: boolean;
+  created_at: string;
+  updated_at: string;
+  pendix_clientes?: { id?: string; nome: string; responsavel?: string; telefone?: string };
+  pendix_documentos_config?: { descricao_whatsapp?: string; arquivo_modelo_url?: string; arquivo_modelo_nome?: string; prioridade?: string } | null;
+}
+
+export interface PendixHistoricoEntry {
+  id: string;
+  escritorio_id: string;
+  pendencia_id?: string;
+  cliente_id?: string;
+  acao: string;
+  descricao?: string;
+  usuario_nome?: string;
+  created_at: string;
+}
+
+export interface PendixConversa {
+  id: string;
+  escritorio_id: string;
+  pendencia_id: string;
+  cliente_id: string;
+  telefone: string;
+  status: 'ativa' | 'encerrada' | 'escalada_humano';
+  resumo?: string;
+  criada_em: string;
+  atualizada_em: string;
+}
+
+export interface PendixMensagem {
+  id: string;
+  conversa_id: string;
+  remetente: 'agente' | 'cliente';
+  tipo: 'texto' | 'arquivo';
+  conteudo?: string;
+  arquivo_url?: string;
+  metadata?: Record<string, unknown>;
+  criada_em: string;
+}
+
+// ── Clientes ───────────────────────────────────────────────────────────────
+
+export async function getPendixClientes() {
+  let q = supabase.from('pendix_clientes').select('*').order('nome');
+  if (!isSuperAdmin()) {
+    const eid = sessionOfficeId();
+    if (eid) q = q.eq('escritorio_id', eid);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as PendixCliente[];
+}
+
+export async function postPendixCliente(p: Omit<PendixCliente, 'id' | 'created_at' | 'updated_at'>) {
+  const eid = sessionOfficeId();
+  const { data, error } = await supabase
+    .from('pendix_clientes')
+    .insert({ ...p, escritorio_id: p.escritorio_id || eid })
+    .select().single();
+  if (error) throw error;
+  return data as PendixCliente;
+}
+
+export async function updatePendixCliente(id: string, p: Partial<Omit<PendixCliente, 'id' | 'created_at'>>) {
+  const { data, error } = await supabase
+    .from('pendix_clientes')
+    .update({ ...p, updated_at: new Date().toISOString() })
+    .eq('id', id).select().single();
+  if (error) throw error;
+  return data as PendixCliente;
+}
+
+export async function deletePendixCliente(id: string) {
+  const { error } = await supabase.from('pendix_clientes').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ── Pendências ──────────────────────────────────────────────────────────────
+
+const PENDENCIA_SELECT = '*, pendix_clientes(id, nome, responsavel, telefone), pendix_documentos_config(descricao_whatsapp, arquivo_modelo_url, arquivo_modelo_nome, prioridade)';
+
+export async function getPendixPendencias(filters?: {
+  clienteId?: string; status?: string; competencia?: string; search?: string;
+}) {
+  let q = supabase.from('pendix_pendencias').select(PENDENCIA_SELECT).order('data_limite', { ascending: true });
+
+  if (!isSuperAdmin()) {
+    const eid = sessionOfficeId();
+    if (eid) q = q.eq('escritorio_id', eid);
+  }
+  if (filters?.clienteId) q = q.eq('cliente_id', filters.clienteId);
+  if (filters?.status) q = q.eq('status', filters.status);
+  if (filters?.competencia) q = q.eq('competencia', filters.competencia);
+
+  const { data, error } = await q;
+  if (error) throw error;
+  let rows = (data ?? []) as PendixPendencia[];
+  if (filters?.search) {
+    const s = filters.search.toLowerCase();
+    rows = rows.filter((r) =>
+      r.nome_documento.toLowerCase().includes(s) ||
+      (r.pendix_clientes?.nome ?? '').toLowerCase().includes(s));
+  }
+  return rows;
+}
+
+export async function getPendixPendencia(id: string) {
+  const { data, error } = await supabase.from('pendix_pendencias').select(PENDENCIA_SELECT).eq('id', id).single();
+  if (error) throw error;
+  return data as PendixPendencia;
+}
+
+export async function postPendixPendencia(
+  p: Omit<PendixPendencia, 'id' | 'created_at' | 'updated_at' | 'pendix_clientes' | 'pendix_documentos_config'>
+) {
+  const eid = sessionOfficeId();
+  const { data, error } = await supabase
+    .from('pendix_pendencias')
+    .insert({ ...p, escritorio_id: p.escritorio_id || eid })
+    .select().single();
+  if (error) throw error;
+  const pendencia = data as PendixPendencia;
+  void notificarAgenteNovaPendencia(pendencia);
+  return pendencia;
+}
+
+export async function updatePendixPendenciaStatus(id: string, status: PendixPendenciaStatus, obs?: string) {
+  const payload: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+  if (status === 'recebido') payload.data_recebimento = new Date().toISOString();
+  if (obs !== undefined) payload.observacoes = obs;
+  const { data, error } = await supabase.from('pendix_pendencias').update(payload).eq('id', id).select().single();
+  if (error) throw error;
+  return data as PendixPendencia;
+}
+
+export async function deletePendixPendencia(id: string) {
+  const { error } = await supabase.from('pendix_pendencias').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ── Histórico ──────────────────────────────────────────────────────────────
+
+export async function getPendixHistorico(opts?: { clienteId?: string; pendenciaId?: string }) {
+  let q = supabase.from('pendix_historico').select('*').order('created_at', { ascending: false }).limit(300);
+  if (!isSuperAdmin()) {
+    const eid = sessionOfficeId();
+    if (eid) q = q.eq('escritorio_id', eid);
+  }
+  if (opts?.clienteId) q = q.eq('cliente_id', opts.clienteId);
+  if (opts?.pendenciaId) q = q.eq('pendencia_id', opts.pendenciaId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as PendixHistoricoEntry[];
+}
+
+// ── Conversa do agente (WhatsApp) ────────────────────────────────────────────
+
+export async function getPendixConversaMensagens(pendenciaId: string) {
+  const { data: conversas, error: errConversa } = await supabase
+    .from('pendix_conversas').select('*').eq('pendencia_id', pendenciaId).order('criada_em', { ascending: true });
+  if (errConversa) throw errConversa;
+  if (!conversas?.length) return { conversas: [] as PendixConversa[], mensagens: [] as PendixMensagem[] };
+
+  const conversaIds = conversas.map((c) => c.id);
+  const { data: mensagens, error: errMsg } = await supabase
+    .from('pendix_mensagens').select('*').in('conversa_id', conversaIds).order('criada_em', { ascending: true });
+  if (errMsg) throw errMsg;
+
+  return { conversas: conversas as PendixConversa[], mensagens: (mensagens ?? []) as PendixMensagem[] };
+}
+
+// ── Agente de IA (Claude + Z-API) ────────────────────────────────────────────
+// Dispara o primeiro contato automático assim que uma pendência é criada.
+// Espelha notificarAgenteNovaPendencia do site — best-effort, nunca bloqueia a
+// criação da pendência (o cron diário eventualmente pega se isso falhar).
+
+async function notificarAgenteNovaPendencia(pendencia: PendixPendencia) {
+  if (pendencia.status !== 'pendente') return;
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (!apiUrl) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch(`${apiUrl}/api/pendix/agente/pendencia-criada`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({ pendencia_id: pendencia.id }),
+    });
+  } catch {
+    // silencioso — mesmo comportamento do site
+  }
+}
+
+// ── Configuração de cobrança do agente (por escritório) ──────────────────────
+
+export interface PendixConfiguracaoCobranca {
+  escritorio_id: string;
+  dias_amigavel: number;
+  dias_lembrete: number;
+  dias_urgente: number;
+  horario_inicio: string;
+  horario_fim: string;
+  max_reenvios: number;
+  cooldown_horas: number;
+  ativo: boolean;
+}
+
+const CONFIG_COBRANCA_DEFAULT: Omit<PendixConfiguracaoCobranca, 'escritorio_id'> = {
+  dias_amigavel: 2, dias_lembrete: 7, dias_urgente: 15,
+  horario_inicio: '08:00', horario_fim: '19:00',
+  max_reenvios: 4, cooldown_horas: 24, ativo: true,
+};
+
+export async function getPendixConfiguracaoCobranca(): Promise<PendixConfiguracaoCobranca> {
+  const eid = sessionOfficeId() ?? '';
+  const { data, error } = await supabase
+    .from('pendix_configuracao_cobranca').select('*')
+    .eq('escritorio_id', eid).maybeSingle();
+  if (error) throw error;
+  return data ? (data as PendixConfiguracaoCobranca) : { escritorio_id: eid, ...CONFIG_COBRANCA_DEFAULT };
+}
+
+export async function salvarPendixConfiguracaoCobranca(config: Omit<PendixConfiguracaoCobranca, 'escritorio_id'>) {
+  const eid = sessionOfficeId() ?? '';
+  const { data, error } = await supabase
+    .from('pendix_configuracao_cobranca')
+    .upsert({ escritorio_id: eid, ...config }, { onConflict: 'escritorio_id' })
+    .select().single();
+  if (error) throw error;
+  return data as PendixConfiguracaoCobranca;
+}
+
+// ── Notificações (derivadas de pendências + histórico, não persistidas) ─────
+
+export type PendixNotificacaoTipo = 'vencida' | 'proxima_vencimento' | 'cliente_respondeu' | 'documento_recebido';
+
+export interface PendixNotificacaoDerivada {
+  id: string;
+  tipo: PendixNotificacaoTipo;
+  titulo: string;
+  descricao: string;
+  data: string;
+  pendencia_id?: string;
+}
+
+// Não existe uma tabela de "notificações lidas/não lidas" — esta lista é
+// calculada na hora a partir de pendências e histórico reais (sem estado de
+// leitura persistido; "lida" vive só na sessão do app).
+export async function getPendixNotificacoesDerivadas(): Promise<PendixNotificacaoDerivada[]> {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const emTresDias = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const quatorzeDiasAtras = new Date(Date.now() - 14 * 86400000).toISOString();
+
+  const [pendenciasRes, historicoRes] = await Promise.all([
+    getPendixPendencias({ status: 'pendente' }),
+    getPendixHistorico(),
+  ]);
+
+  const notifs: PendixNotificacaoDerivada[] = [];
+
+  for (const p of pendenciasRes) {
+    if (!p.data_limite) continue;
+    const nome = p.pendix_clientes?.nome ?? 'Cliente';
+    if (p.data_limite < hoje) {
+      notifs.push({
+        id: `vencida-${p.id}`, tipo: 'vencida',
+        titulo: `${p.nome_documento} vencida`,
+        descricao: `${nome} ainda não enviou — venceu em ${new Date(p.data_limite + 'T00:00:00').toLocaleDateString('pt-BR')}.`,
+        data: p.data_limite, pendencia_id: p.id,
+      });
+    } else if (p.data_limite <= emTresDias) {
+      notifs.push({
+        id: `vencimento-${p.id}`, tipo: 'proxima_vencimento',
+        titulo: `${p.nome_documento} vence em breve`,
+        descricao: `${nome} — prazo em ${new Date(p.data_limite + 'T00:00:00').toLocaleDateString('pt-BR')}.`,
+        data: p.data_limite, pendencia_id: p.id,
+      });
+    }
+  }
+
+  for (const h of historicoRes) {
+    if (h.created_at < quatorzeDiasAtras) continue;
+    if (h.acao === 'documento_aprovado') {
+      notifs.push({
+        id: `recebido-${h.id}`, tipo: 'documento_recebido',
+        titulo: 'Documento recebido e validado',
+        descricao: h.descricao ?? '', data: h.created_at, pendencia_id: h.pendencia_id,
+      });
+    } else if (h.acao === 'resposta_enviada' || h.acao === 'documento_reprovado' || h.acao === 'documento_parcial') {
+      notifs.push({
+        id: `resposta-${h.id}`, tipo: 'cliente_respondeu',
+        titulo: 'Cliente interagiu com o agente',
+        descricao: h.descricao ?? '', data: h.created_at, pendencia_id: h.pendencia_id,
+      });
+    }
+  }
+
+  return notifs.sort((a, b) => b.data.localeCompare(a.data));
+}
+
+// ── Stats do Dashboard ───────────────────────────────────────────────────────
+
+export async function getPendixStats() {
+  const eid = sessionOfficeId();
+  const isAdmin = isSuperAdmin();
+  const applyFilter = (q: any) => (!isAdmin && eid ? q.eq('escritorio_id', eid) : q);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const [clientes, abertas, vencidas, hoje] = await Promise.all([
+    applyFilter(supabase.from('pendix_clientes').select('id', { count: 'exact', head: true }).eq('status', 'ativo')),
+    applyFilter(supabase.from('pendix_pendencias').select('id', { count: 'exact', head: true }).in('status', ['pendente', 'em_analise'])),
+    applyFilter(supabase.from('pendix_pendencias').select('id', { count: 'exact', head: true }).eq('status', 'pendente').lt('data_limite', today)),
+    applyFilter(supabase.from('pendix_pendencias').select('id', { count: 'exact', head: true }).eq('status', 'recebido').gte('data_recebimento', today + 'T00:00:00Z')),
+  ]);
+
+  return {
+    clientesAtivos: clientes.count ?? 0,
+    pendenciasAbertas: abertas.count ?? 0,
+    vencidas: vencidas.count ?? 0,
+    recebidosHoje: hoje.count ?? 0,
+  };
+}
