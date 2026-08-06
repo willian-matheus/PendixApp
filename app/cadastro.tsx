@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { ClipboardList, User, Mail, Phone, IdCard, Lock, Check } from 'lucide-react-native';
+import { User, Mail, Phone, IdCard, Lock, Check } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
+import PendixLogo from '@/components/PendixLogo';
+import PendixWordmark from '@/components/PendixWordmark';
+import PendixTagline from '@/components/PendixTagline';
 
 const EMPTY = { nome: '', email: '', telefone: '', documento: '', senha: '', confirmarSenha: '' };
 
@@ -68,21 +70,13 @@ export default function CadastroScreen() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1 bg-pendix-bg">
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }} keyboardShouldPersistTaps="handled">
-        <View pointerEvents="none" style={{ position: 'absolute', top: '20%', right: '10%', width: 260, height: 260, borderRadius: 130, backgroundColor: 'rgba(139,92,246,0.10)' }} />
-
         <View className="w-full max-w-sm self-center">
           <View className="items-center mb-8">
             <View className="flex-row items-center gap-3 mb-4">
-              <LinearGradient
-                colors={['#a855f7', '#6d28d9']}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={{ width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }}
-              >
-                <ClipboardList size={24} color="#fff" />
-              </LinearGradient>
-              <Text className="text-4xl font-black tracking-widest uppercase text-white">PENDIX</Text>
+              <PendixLogo variant="white" size={48} />
+              <PendixWordmark size={40} />
             </View>
-            <Text className="text-xs text-purple-400/70 tracking-[3px] uppercase">Criar conta</Text>
+            <PendixTagline className="text-xs text-purple-400/70">Criar conta</PendixTagline>
           </View>
 
           {done ? (

@@ -5,10 +5,13 @@ import {
 } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ClipboardList, Mail, Lock, ArrowRight, Eye, EyeOff, Check } from 'lucide-react-native';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Check } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { BottomSheetModal } from '@/components/Modal';
+import PendixLogo from '@/components/PendixLogo';
+import PendixWordmark from '@/components/PendixWordmark';
+import PendixTagline from '@/components/PendixTagline';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 
@@ -83,22 +86,13 @@ export default function LoginScreen() {
         contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Glow decorativo */}
-        <View pointerEvents="none" style={{ position: 'absolute', top: '30%', left: '10%', width: 260, height: 260, borderRadius: 130, backgroundColor: 'rgba(139,92,246,0.10)' }} />
-
         <View className="w-full max-w-sm self-center">
           <View className="items-center mb-10">
             <View className="flex-row items-center gap-3 mb-4">
-              <LinearGradient
-                colors={['#a855f7', '#6d28d9']}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={{ width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }}
-              >
-                <ClipboardList size={24} color="#fff" />
-              </LinearGradient>
-              <Text className="text-4xl font-black tracking-widest uppercase text-white">PENDIX</Text>
+              <PendixLogo variant="white" size={48} />
+              <PendixWordmark size={40} />
             </View>
-            <Text className="text-xs text-purple-400/70 tracking-[3px] uppercase">Gestão de Pendências</Text>
+            <PendixTagline className="text-xs text-purple-400/70">Gestão de Pendências</PendixTagline>
           </View>
 
           <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-6">
