@@ -1,23 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { PendixPrioridade } from '@/services/pendix';
 
-// Campos do formulário de Pendências que ainda não têm coluna própria no
-// banco (tipo cliente/empresa, prioridade na criação, data inicial de
-// cobrança, frequência, anexo de exemplo). Guardados localmente por
-// pendência, no mesmo espírito do módulo de Empresas.
+// tipo, descrição, prioridade, data inicial de cobrança, horário de
+// notificação, datas de notificação extra e anexo de exemplo agora são
+// colunas reais em pendix_pendencias (mesmo schema usado pelo PendixWeb —
+// ver supabase/migrations/0011, 0013 e 0014 do site). O que resta aqui é só
+// o vínculo com "empresa" (agrupador que ainda vive só no dispositivo, sem
+// tabela no Supabase — ver services/empresasLocal.ts), no mesmo espírito do
+// site (ver "Extras locais da pendência" em pendix.ts do PendixWeb).
 
 const STORAGE_KEY = '@pendix/pendencias_extra';
 
-export type FrequenciaCobranca = 'uma_vez' | 'diaria' | 'a_cada_2_dias' | 'semanal' | 'quinzenal' | 'mensal';
-
 export interface PendenciaExtra {
-  tipo: 'cliente' | 'empresa';
   empresaId?: string;
-  descricao?: string;
-  prioridade?: PendixPrioridade;
-  dataInicialCobranca?: string;
-  frequencia?: FrequenciaCobranca;
-  anexoNome?: string;
 }
 
 async function readMap(): Promise<Record<string, PendenciaExtra>> {

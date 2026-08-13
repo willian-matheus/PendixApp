@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { X, Check, Paperclip } from 'lucide-react-native';
-import { getPendixClientes, postPendixPendencia, type PendixCliente, type PendixPrioridade } from '@/services/pendix';
+import { getPendixClientes, postPendixPendencia, type PendixCliente, type PendixPendenciaTipo, type PendixPrioridade } from '@/services/pendix';
 import { getEmpresas, getVinculosEmpresa, type Empresa } from '@/services/empresasLocal';
-import { salvarPendenciaExtra, type FrequenciaCobranca } from '@/services/pendenciasExtra';
+import { salvarPendenciaExtra } from '@/services/pendenciasExtra';
 import { Select } from '@/components/Select';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
@@ -17,14 +17,7 @@ const PRIORIDADE_OPTS: { value: PendixPrioridade; label: string }[] = [
   { value: 'urgente', label: 'Urgente' },
 ];
 
-const FREQUENCIA_OPTS: { value: FrequenciaCobranca; label: string }[] = [
-  { value: 'uma_vez', label: 'Uma vez' },
-  { value: 'diaria', label: 'Diária' },
-  { value: 'a_cada_2_dias', label: 'A cada 2 dias' },
-  { value: 'semanal', label: 'Semanal' },
-  { value: 'quinzenal', label: 'Quinzenal' },
-  { value: 'mensal', label: 'Mensal' },
-];
+const MAX_NOTIFICACOES_EXTRA = 3;
 
 export default function NovaPendenciaScreen() {
   const router = useRouter();
@@ -34,7 +27,7 @@ export default function NovaPendenciaScreen() {
   const [loadingDados, setLoadingDados] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const [tipo, setTipo] = useState<'cliente' | 'empresa'>('cliente');
+  const [tipo, setTipo] = useState<PendixPendenciaTipo>('cliente');
   const [clienteId, setClienteId] = useState<string | null>(null);
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [todosClientesEmpresa, setTodosClientesEmpresa] = useState(false);
@@ -45,7 +38,9 @@ export default function NovaPendenciaScreen() {
   const [competencia, setCompetencia] = useState('');
   const [dataLimite, setDataLimite] = useState('');
   const [dataInicialCobranca, setDataInicialCobranca] = useState('');
-  const [frequencia, setFrequencia] = useState<FrequenciaCobranca>('uma_vez');
+  const [horarioNotificacao, setHorarioNotificacao] = useState('09:00');
+  const [notificarMultiplasVezes, setNotificarMultiplasVezes] = useState(false);
+  const [datasNotificacao, setDatasNotificacao] = useState<string[]>(['', '', '']);
   const [anexoNome, setAnexoNome] = useState('');
   const [observacaoInterna, setObservacaoInterna] = useState('');
 
@@ -62,6 +57,8 @@ export default function NovaPendenciaScreen() {
     if (!titulo.trim()) { Alert.alert('Falta o título', 'Informe o título da pendência.'); return; }
     if (!/^\d{4}-\d{2}$/.test(competencia)) { Alert.alert('Competência inválida', 'Use o formato AAAA-MM, ex: 2026-08.'); return; }
     if (dataLimite && !/^\d{4}-\d{2}-\d{2}$/.test(dataLimite)) { Alert.alert('Vencimento inválido', 'Use o formato AAAA-MM-DD, ex: 2026-08-15.'); return; }
+    if (dataInicialCobranca && !/^\d{4}-\d{2}-\d{2}$/.test(dataInicialCobranca)) { Alert.alert('Data inicial inválida', 'Use o formato AAAA-MM-DD, ex: 2026-08-01.'); return; }
+    if (!/^\d{2}:\d{2}$/.test(horarioNotificacao)) { Alert.alert('Horário inválido', 'Use o formato HH:MM, ex: 09:00.'); return; }
 
     let clienteIds: string[] = [];
     if (tipo === 'cliente') {
@@ -80,6 +77,7 @@ export default function NovaPendenciaScreen() {
 
     setSubmitting(true);
     try {
+      const datasNotificacaoValidas = notificarMultiplasVezes ? datasNotificacao.filter(Boolean) : [];
       for (const cid of clienteIds) {
         const pendencia = await postPendixPendencia({
           escritorio_id: '',
@@ -89,12 +87,17 @@ export default function NovaPendenciaScreen() {
           status: 'pendente',
           data_limite: dataLimite || undefined,
           observacoes: observacaoInterna || undefined,
+          tipo,
+          descricao: descricao || undefined,
+          prioridade,
+          data_inicio_cobranca: dataInicialCobranca || undefined,
+          horario_notificacao: horarioNotificacao,
+          datas_notificacao: datasNotificacaoValidas,
+          arquivo_modelo_nome: anexoNome || undefined,
         });
-        await salvarPendenciaExtra(pendencia.id, {
-          tipo, empresaId: empresaId ?? undefined, descricao: descricao || undefined,
-          prioridade, dataInicialCobranca: dataInicialCobranca || undefined,
-          frequencia, anexoNome: anexoNome || undefined,
-        });
+        if (tipo === 'empresa' && empresaId) {
+          await salvarPendenciaExtra(pendencia.id, { empresaId });
+        }
       }
       router.back();
     } catch (err: any) {
@@ -210,8 +213,39 @@ export default function NovaPendenciaScreen() {
           <Input label="Competência (AAAA-MM)" value={competencia} onChangeText={setCompetencia} placeholder="2026-08" />
           <Input label="Data de vencimento (AAAA-MM-DD, opcional)" value={dataLimite} onChangeText={setDataLimite} placeholder="2026-08-15" />
           <Input label="Data inicial da cobrança (AAAA-MM-DD, opcional)" value={dataInicialCobranca} onChangeText={setDataInicialCobranca} placeholder="2026-08-01" />
+          <Input
+            label="Horário de notificação (HH:MM)" value={horarioNotificacao} onChangeText={setHorarioNotificacao} placeholder="09:00"
+          />
 
-          <Select label="Frequência de cobrança" value={frequencia} onChange={setFrequencia} options={FREQUENCIA_OPTS} />
+          <Pressable
+            onPress={() => setNotificarMultiplasVezes((v) => !v)}
+            className="flex-row items-center gap-2.5 mb-3"
+          >
+            <View
+              className="w-4 h-4 rounded items-center justify-center"
+              style={{ borderWidth: 1, borderColor: notificarMultiplasVezes ? '#9333ea' : 'rgba(255,255,255,0.2)', backgroundColor: notificarMultiplasVezes ? '#9333ea' : 'transparent' }}
+            >
+              {notificarMultiplasVezes && <Check size={11} color="#fff" />}
+            </View>
+            <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+              Notificar mais de uma vez (até {MAX_NOTIFICACOES_EXTRA}x)
+            </Text>
+          </Pressable>
+          {notificarMultiplasVezes && (
+            <View className="flex-row gap-2 mb-4">
+              {datasNotificacao.map((data, i) => (
+                <View key={i} className="flex-1">
+                  <Input
+                    label={`${i + 1}ª notificação`}
+                    value={data}
+                    onChangeText={(v) => setDatasNotificacao((prev) => { const next = [...prev]; next[i] = v; return next; })}
+                    placeholder="2026-08-15"
+                    containerClassName="mb-0"
+                  />
+                </View>
+              ))}
+            </View>
+          )}
 
           <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">Anexo de exemplo</Text>
           <Pressable

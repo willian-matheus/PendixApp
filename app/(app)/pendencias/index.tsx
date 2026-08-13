@@ -4,7 +4,6 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Plus, Search, ChevronRight, SlidersHorizontal, X } from 'lucide-react-native';
 import { getPendixPendencias, getPendixClientes, type PendixPendencia, type PendixPendenciaStatus, type PendixCliente, type PendixPrioridade } from '@/services/pendix';
 import { getEmpresas, getVinculosEmpresa, type Empresa } from '@/services/empresasLocal';
-import { getPendenciasExtraMap, type PendenciaExtra } from '@/services/pendenciasExtra';
 import { Badge } from '@/components/Badge';
 import { EmptyState } from '@/components/EmptyState';
 import { Loader } from '@/components/Loader';
@@ -47,7 +46,6 @@ export default function PendenciasListScreen() {
   const [clientes, setClientes] = useState<PendixCliente[]>([]);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [vinculos, setVinculos] = useState<Record<string, string>>({});
-  const [extraMap, setExtraMap] = useState<Record<string, PendenciaExtra>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<PendixPendenciaStatus | undefined>(undefined);
@@ -62,18 +60,16 @@ export default function PendenciasListScreen() {
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
-      const [rows, cli, emp, vinc, extra] = await Promise.all([
+      const [rows, cli, emp, vinc] = await Promise.all([
         getPendixPendencias({ status, search: search || undefined }),
         getPendixClientes(),
         getEmpresas(),
         getVinculosEmpresa(),
-        getPendenciasExtraMap(),
       ]);
       setItems(rows);
       setClientes(cli);
       setEmpresas(emp);
       setVinculos(vinc);
-      setExtraMap(extra);
     } catch (err) {
       console.error('[Pendências] Falha ao carregar:', err);
     } finally {
@@ -104,13 +100,13 @@ export default function PendenciasListScreen() {
 
   const filtered = useMemo(() => {
     return items.filter((p) => {
-      if (prioridadeFiltro !== 'todas' && (extraMap[p.id]?.prioridade ?? 'media') !== prioridadeFiltro) return false;
+      if (prioridadeFiltro !== 'todas' && (p.prioridade ?? 'media') !== prioridadeFiltro) return false;
       if (clienteFiltro && p.cliente_id !== clienteFiltro) return false;
       if (empresaFiltro && vinculos[p.cliente_id] !== empresaFiltro) return false;
       if (vencimentoAte && (!p.data_limite || p.data_limite > vencimentoAte)) return false;
       return true;
     });
-  }, [items, extraMap, vinculos, prioridadeFiltro, clienteFiltro, empresaFiltro, vencimentoAte]);
+  }, [items, vinculos, prioridadeFiltro, clienteFiltro, empresaFiltro, vencimentoAte]);
 
   return (
     <View className="flex-1 bg-pendix-bg" style={{ paddingTop: 60 }}>
@@ -170,7 +166,7 @@ export default function PendenciasListScreen() {
           ListEmptyComponent={<EmptyState icon={Search} title="Nenhuma pendência encontrada." />}
           renderItem={({ item }) => {
             const s = STATUS_STYLE[item.status];
-            const prio = extraMap[item.id]?.prioridade;
+            const prio = item.prioridade;
             return (
               <Pressable
                 onPress={() => router.push(`/(app)/pendencias/${item.id}`)}

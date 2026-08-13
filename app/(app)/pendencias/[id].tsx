@@ -8,7 +8,6 @@ import {
   getPendixPendencia, getPendixConversaMensagens, updatePendixPendenciaStatus,
   type PendixPendencia, type PendixMensagem,
 } from '@/services/pendix';
-import { getPendenciaExtra, type PendenciaExtra } from '@/services/pendenciasExtra';
 import { Badge } from '@/components/Badge';
 import { Loader } from '@/components/Loader';
 
@@ -20,6 +19,10 @@ function formatDate(iso?: string) {
 function formatDateTime(iso?: string) {
   if (!iso) return '';
   return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function formatHorario(horario?: string) {
+  return horario ? horario.slice(0, 5) : '—';
 }
 
 const NIVEL_LABEL: Record<string, string> = {
@@ -46,19 +49,17 @@ export default function PendenciaDetalheScreen() {
   const router = useRouter();
   const [pendencia, setPendencia] = useState<PendixPendencia | null>(null);
   const [mensagens, setMensagens] = useState<PendixMensagem[]>([]);
-  const [extra, setExtra] = useState<PendenciaExtra | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [p, conversa, ex] = await Promise.all([
-        getPendixPendencia(id), getPendixConversaMensagens(id), getPendenciaExtra(id),
+      const [p, conversa] = await Promise.all([
+        getPendixPendencia(id), getPendixConversaMensagens(id),
       ]);
       setPendencia(p);
       setMensagens(conversa.mensagens);
-      setExtra(ex);
     } catch (err) {
       console.error('[PendenciaDetalhe] Falha ao carregar:', err);
     } finally {
@@ -122,16 +123,23 @@ export default function PendenciaDetalheScreen() {
           <FileText size={14} color="#6b7280" />
           <Text className="text-gray-400 text-xs">Competência {pendencia.competencia}</Text>
         </View>
-        <View className="flex-row items-center gap-2">
+        <View className="flex-row items-center gap-2 mb-2.5">
           <Calendar size={14} color="#6b7280" />
           <Text className="text-gray-400 text-xs">Prazo {formatDate(pendencia.data_limite)}</Text>
+        </View>
+        <View className="flex-row items-center gap-2">
+          <Send size={14} color="#6b7280" />
+          <Text className="text-gray-400 text-xs">
+            Cobrança inicial {formatDate(pendencia.data_inicio_cobranca)} às {formatHorario(pendencia.horario_notificacao)}
+            {!!pendencia.datas_notificacao?.length && ` · lembretes em ${pendencia.datas_notificacao.map(formatDate).join(', ')}`}
+          </Text>
         </View>
         <View className="flex-row flex-wrap gap-2 mt-3">
           {!!pendencia.nivel_cobranca_atual && (
             <Badge label={NIVEL_LABEL[pendencia.nivel_cobranca_atual] ?? pendencia.nivel_cobranca_atual} tone="purple" />
           )}
-          {!!extra?.prioridade && (
-            <Badge label={PRIORIDADE_LABEL[extra.prioridade]} tone={PRIORIDADE_TONE[extra.prioridade]} />
+          {!!pendencia.prioridade && (
+            <Badge label={PRIORIDADE_LABEL[pendencia.prioridade]} tone={PRIORIDADE_TONE[pendencia.prioridade]} />
           )}
         </View>
       </View>
@@ -179,10 +187,10 @@ export default function PendenciaDetalheScreen() {
       {/* Anexos */}
       <Text className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Anexos</Text>
       <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-4">
-        {pendencia.arquivo_nome || extra?.anexoNome ? (
+        {pendencia.arquivo_nome || pendencia.arquivo_modelo_nome ? (
           <View className="flex-row items-center gap-2">
             <Paperclip size={14} color="#a78bfa" />
-            <Text className="text-gray-300 text-sm flex-1" numberOfLines={1}>{pendencia.arquivo_nome || extra?.anexoNome}</Text>
+            <Text className="text-gray-300 text-sm flex-1" numberOfLines={1}>{pendencia.arquivo_nome || pendencia.arquivo_modelo_nome}</Text>
           </View>
         ) : (
           <Text className="text-gray-600 text-sm">Nenhum anexo.</Text>
@@ -190,14 +198,14 @@ export default function PendenciaDetalheScreen() {
       </View>
 
       {/* Observações */}
-      {(!!extra?.descricao || !!pendencia.observacoes) && (
+      {(!!pendencia.descricao || !!pendencia.observacoes) && (
         <>
           <Text className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Observações</Text>
           <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-4 gap-3">
-            {!!extra?.descricao && (
+            {!!pendencia.descricao && (
               <View>
                 <Text className="text-gray-500 text-[10px] font-bold uppercase mb-1">Descrição</Text>
-                <Text className="text-gray-300 text-sm leading-relaxed">{extra.descricao}</Text>
+                <Text className="text-gray-300 text-sm leading-relaxed">{pendencia.descricao}</Text>
               </View>
             )}
             {!!pendencia.observacoes && (

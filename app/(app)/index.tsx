@@ -11,7 +11,6 @@ import {
   type PendixPendenciaStatus, type PendixPrioridade,
 } from '@/services/pendix';
 import { getEmpresas } from '@/services/empresasLocal';
-import { getPendenciasExtraMap } from '@/services/pendenciasExtra';
 import { cfgFor, daysLabel } from '@/lib/historicoAcoes';
 import { Loader } from '@/components/Loader';
 
@@ -105,11 +104,10 @@ export default function DashboardScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [statsData, empresas, pendenciasRaw, extraMap, historico, proximas] = await Promise.all([
+      const [statsData, empresas, pendenciasRaw, historico, proximas] = await Promise.all([
         getPendixStats(),
         getEmpresas(),
         getPendixPendenciasPorStatusEMes(),
-        getPendenciasExtraMap(),
         getPendixHistorico(),
         getPendixPendencias({ status: 'pendente' }),
       ]);
@@ -121,7 +119,7 @@ export default function DashboardScreen() {
       const mesCounts = new Map<string, number>();
       for (const p of pendenciasRaw) {
         sCounts[p.status] = (sCounts[p.status] ?? 0) + 1;
-        const prio = extraMap[p.id]?.prioridade ?? 'media';
+        const prio = p.prioridade ?? 'media';
         pCounts[prio] = (pCounts[prio] ?? 0) + 1;
         if (p.competencia) mesCounts.set(p.competencia, (mesCounts.get(p.competencia) ?? 0) + 1);
       }

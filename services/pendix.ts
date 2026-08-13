@@ -9,6 +9,7 @@ export type PendixRegime = 'simples_nacional' | 'lucro_presumido' | 'lucro_real'
 export type PendixPendenciaStatus = 'pendente' | 'recebido' | 'em_analise' | 'rejeitado' | 'cancelado';
 export type PendixNivelCobranca = 'amigavel' | 'lembrete' | 'urgente' | 'critico';
 export type PendixPrioridade = 'baixa' | 'media' | 'alta' | 'urgente';
+export type PendixPendenciaTipo = 'cliente' | 'empresa';
 
 export interface PendixCliente {
   id: string;
@@ -43,6 +44,16 @@ export interface PendixPendencia {
   tentativas_reenvio?: number;
   ultima_mensagem_enviada_em?: string;
   requer_revisao_humana?: boolean;
+  origem?: 'manual' | 'whatsapp' | 'automatico';
+  tipo?: PendixPendenciaTipo;
+  descricao?: string;
+  prioridade?: PendixPrioridade;
+  data_inicio_cobranca?: string;
+  horario_notificacao?: string;
+  arquivo_modelo_url?: string;
+  arquivo_modelo_nome?: string;
+  datas_notificacao?: string[];
+  datas_notificacao_enviadas?: string[];
   created_at: string;
   updated_at: string;
   pendix_clientes?: { id?: string; nome: string; responsavel?: string; telefone?: string };
@@ -373,9 +384,9 @@ export async function getPendixStats() {
 export async function getPendixPendenciasPorStatusEMes() {
   const eid = sessionOfficeId();
   const isAdmin = isSuperAdmin();
-  let q = supabase.from('pendix_pendencias').select('id, status, competencia, data_limite, created_at');
+  let q = supabase.from('pendix_pendencias').select('id, status, competencia, data_limite, created_at, prioridade');
   if (!isAdmin && eid) q = q.eq('escritorio_id', eid);
   const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []) as { id: string; status: PendixPendenciaStatus; competencia: string; data_limite?: string; created_at: string }[];
+  return (data ?? []) as { id: string; status: PendixPendenciaStatus; competencia: string; data_limite?: string; created_at: string; prioridade?: PendixPrioridade }[];
 }
