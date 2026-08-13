@@ -50,7 +50,7 @@ export default function CadastroScreen() {
             nome: form.nome.trim(),
             telefone: form.telefone.trim(),
             documento: form.documento.trim(),
-            role: 'dono_escritorio',
+            role: 'master',
           },
         },
       });

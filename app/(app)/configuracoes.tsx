@@ -16,7 +16,7 @@ function iniciais(nome: string) {
 }
 
 const ROLE_LABEL: Record<string, string> = {
-  admin: 'Administrador', super_admin: 'Administrador', dono_escritorio: 'Dono do escritório',
+  admin: 'Administrador', super_admin: 'Administrador', master: 'Master',
   contador: 'Contador', cliente_empresa: 'Cliente',
 };
 

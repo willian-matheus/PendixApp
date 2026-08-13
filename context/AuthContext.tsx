@@ -28,7 +28,7 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const ROLES_VALIDOS = ['admin', 'dono_escritorio', 'contador', 'cliente_empresa', 'acesso_completo', 'visualizador'];
+const ROLES_VALIDOS = ['admin', 'super_admin', 'master', 'contador', 'cliente_empresa', 'acesso_completo', 'visualizador'];
 
 // Mesma lógica do AuthProvider do site (src/app/auth/AuthProvider.tsx): busca o
 // perfil na tabela `usuarios`, com fallback pro user_metadata do Supabase Auth
@@ -58,7 +58,7 @@ async function fetchUserProfile(userId: string, authEmail: string): Promise<Pend
     } else {
       id = userId;
       nome = meta.nome || authEmail;
-      role = meta.role || 'dono_escritorio';
+      role = meta.role || 'master';
       escritorio_id = meta.escritorio_id || null;
       empresa_id = meta.empresa_id || null;
       telas = meta.telas || [];
