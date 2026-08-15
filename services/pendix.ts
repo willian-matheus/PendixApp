@@ -69,6 +69,7 @@ export interface PendixHistoricoEntry {
   descricao?: string;
   usuario_nome?: string;
   created_at: string;
+  pendix_clientes?: { id?: string; nome: string };
 }
 
 export interface PendixConversa {
@@ -197,7 +198,7 @@ export async function deletePendixPendencia(id: string) {
 // ── Histórico ──────────────────────────────────────────────────────────────
 
 export async function getPendixHistorico(opts?: { clienteId?: string; pendenciaId?: string }) {
-  let q = supabase.from('pendix_historico').select('*').order('created_at', { ascending: false }).limit(300);
+  let q = supabase.from('pendix_historico').select('*, pendix_clientes(id, nome)').order('created_at', { ascending: false }).limit(300);
   if (!isSuperAdmin()) {
     const eid = sessionOfficeId();
     if (eid) q = q.eq('escritorio_id', eid);
@@ -299,6 +300,8 @@ export interface PendixNotificacaoDerivada {
   descricao: string;
   data: string;
   pendencia_id?: string;
+  cliente_id?: string;
+  cliente_nome?: string;
 }
 
 // Não existe uma tabela de "notificações lidas/não lidas" — esta lista é
@@ -343,12 +346,14 @@ export async function getPendixNotificacoesDerivadas(): Promise<PendixNotificaca
         id: `recebido-${h.id}`, tipo: 'documento_recebido',
         titulo: 'Documento recebido e validado',
         descricao: h.descricao ?? '', data: h.created_at, pendencia_id: h.pendencia_id,
+        cliente_id: h.cliente_id, cliente_nome: h.pendix_clientes?.nome,
       });
     } else if (h.acao === 'resposta_enviada' || h.acao === 'documento_reprovado' || h.acao === 'documento_parcial') {
       notifs.push({
         id: `resposta-${h.id}`, tipo: 'cliente_respondeu',
         titulo: 'Cliente interagiu com o agente',
         descricao: h.descricao ?? '', data: h.created_at, pendencia_id: h.pendencia_id,
+        cliente_id: h.cliente_id, cliente_nome: h.pendix_clientes?.nome,
       });
     }
   }
