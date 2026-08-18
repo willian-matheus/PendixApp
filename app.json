@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Pendix",
-    "slug": "PendixApp",
+    "slug": "pendixx",
     "scheme": "pendixapp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,6 +11,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.pendix.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#06000f",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -26,7 +28,21 @@
       "expo-router",
       "expo-status-bar",
       "expo-font",
-      "expo-splash-screen"
-    ]
+      "expo-splash-screen",
+      [
+        "expo-notifications",
+        {
+          "color": "#a78bfa",
+          "defaultChannel": "default"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b0c00e1e-d9cd-4c75-8b31-10dbfe4976d3"
+      }
+    },
+    "owner": "pendix2026"
   }
 }

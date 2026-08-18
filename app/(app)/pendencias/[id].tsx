@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert, ActivityIndicator, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import {
   ArrowLeft, User, Calendar, FileText, Check, Send, MessageCircle, FileCheck, PartyPopper, Paperclip,
+  Download,
 } from 'lucide-react-native';
 import {
-  getPendixPendencia, getPendixConversaMensagens, updatePendixPendenciaStatus,
+  getPendixPendencia, getPendixConversaMensagens, updatePendixPendenciaStatus, getUrlAssinadaAnexo,
   type PendixPendencia, type PendixMensagem,
 } from '@/services/pendix';
 import { Badge } from '@/components/Badge';
@@ -19,6 +20,48 @@ function formatDate(iso?: string) {
 function formatDateTime(iso?: string) {
   if (!iso) return '';
   return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Linha de anexo com download. O bucket `pendix-anexos` é privado, então não
+ * existe URL direta: cada toque gera uma URL assinada de curta duração e
+ * entrega ao navegador do sistema, que baixa o arquivo.
+ */
+function AnexoLinha({ nome, path, legenda }: { nome: string; path?: string; legenda: string }) {
+  const [baixando, setBaixando] = useState(false);
+
+  async function abrir() {
+    if (!path) {
+      Alert.alert('Anexo indisponível', 'Este anexo não tem arquivo associado no storage.');
+      return;
+    }
+    setBaixando(true);
+    try {
+      const url = await getUrlAssinadaAnexo(path);
+      await Linking.openURL(url);
+    } catch (err: any) {
+      Alert.alert('Falha ao baixar', err?.message ?? 'Não foi possível gerar o link do arquivo.');
+    } finally {
+      setBaixando(false);
+    }
+  }
+
+  return (
+    <Pressable
+      onPress={abrir}
+      disabled={baixando}
+      className="flex-row items-center gap-2 bg-white/[0.03] border border-white/[0.06] rounded-xl px-3 py-3"
+    >
+      <Paperclip size={14} color="#a78bfa" />
+      <View className="flex-1">
+        <Text className="text-gray-300 text-sm" numberOfLines={1}>{nome}</Text>
+        <Text className="text-gray-600 text-[10px] mt-0.5">{legenda}</Text>
+      </View>
+      {baixando
+        ? <ActivityIndicator size="small" color="#a78bfa" />
+        : <Download size={14} color="#6b7280" />}
+    </Pressable>
+  );
 }
 
 function formatHorario(horario?: string) {
@@ -186,12 +229,24 @@ export default function PendenciaDetalheScreen() {
 
       {/* Anexos */}
       <Text className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Anexos</Text>
-      <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-4">
+      <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-4 gap-2">
         {pendencia.arquivo_nome || pendencia.arquivo_modelo_nome ? (
-          <View className="flex-row items-center gap-2">
-            <Paperclip size={14} color="#a78bfa" />
-            <Text className="text-gray-300 text-sm flex-1" numberOfLines={1}>{pendencia.arquivo_nome || pendencia.arquivo_modelo_nome}</Text>
-          </View>
+          <>
+            {!!pendencia.arquivo_nome && (
+              <AnexoLinha
+                nome={pendencia.arquivo_nome}
+                path={pendencia.arquivo_url}
+                legenda="Enviado pelo cliente"
+              />
+            )}
+            {!!pendencia.arquivo_modelo_nome && (
+              <AnexoLinha
+                nome={pendencia.arquivo_modelo_nome}
+                path={pendencia.arquivo_modelo_url}
+                legenda="Modelo de exemplo"
+              />
+            )}
+          </>
         ) : (
           <Text className="text-gray-600 text-sm">Nenhum anexo.</Text>
         )}

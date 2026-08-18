@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, ActivityIndicator, Switch, Alert } from 'react-native';
 import {
-  Bot, Check, Clock, LogOut, Save, Pencil, Shield, Palette, CreditCard, Sun, Moon,
+  Bot, Check, Clock, LogOut, Save, Pencil, Shield, Palette, CreditCard, Sun, Moon, Bell,
 } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { getPendixConfiguracaoCobranca, salvarPendixConfiguracaoCobranca, type PendixConfiguracaoCobranca } from '@/services/pendix';
 import { getPreferenciasAparencia, salvarPreferenciasAparencia, CORES_DISPONIVEIS, type Tema } from '@/services/preferenciasLocal';
+import { diagnosticoPush, enviarNotificacaoTesteLocal, enviarPushViaServidor, type DiagnosticoPush } from '@/services/notificacoes';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
 import { Badge } from '@/components/Badge';
@@ -42,6 +43,11 @@ export default function ConfiguracoesScreen() {
   const [tema, setTema] = useState<Tema>('escuro');
   const [corPrincipal, setCorPrincipal] = useState(CORES_DISPONIVEIS[0]);
 
+  // Notificações
+  const [diag, setDiag] = useState<DiagnosticoPush | null>(null);
+  const [enviandoTeste, setEnviandoTeste] = useState(false);
+  const [enviandoServidor, setEnviandoServidor] = useState(false);
+
   // Agente de cobrança
   const [cobranca, setCobranca] = useState<PendixConfiguracaoCobranca | null>(null);
   const [cobrancaLoading, setCobrancaLoading] = useState(true);
@@ -54,6 +60,7 @@ export default function ConfiguracoesScreen() {
       .catch((err) => console.error('[Configurações] Falha ao carregar regras:', err))
       .finally(() => setCobrancaLoading(false));
     getPreferenciasAparencia().then((p) => { setTema(p.tema); setCorPrincipal(p.corPrincipal); });
+    diagnosticoPush().then(setDiag).catch((err) => console.error('[Configurações] Diagnóstico de push:', err));
   }, []);
 
   function setCampo<K extends keyof Omit<PendixConfiguracaoCobranca, 'escritorio_id'>>(k: K, v: PendixConfiguracaoCobranca[K]) {
@@ -382,6 +389,99 @@ export default function ConfiguracoesScreen() {
           label="Alterar plano" variant="outline"
           onPress={() => Alert.alert('Alterar plano', 'Em breve você poderá gerenciar seu plano por aqui.')}
         />
+      </View>
+
+      {/* Notificações */}
+      <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-5 mb-4">
+        <View className="flex-row items-center gap-2 mb-4">
+          <Bell size={15} color="#a78bfa" />
+          <Text className="text-white font-black text-base">Notificações</Text>
+        </View>
+
+        {diag ? (
+          <>
+            <View className="flex-row items-center justify-between bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3 mb-2">
+              <Text className="text-gray-400 text-sm">Ambiente</Text>
+              <Text className="text-gray-300 text-xs font-bold">{diag.ambiente}</Text>
+            </View>
+            <View className="flex-row items-center justify-between bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3 mb-2">
+              <Text className="text-gray-400 text-sm">Permissão</Text>
+              <Badge
+                label={diag.permissao === 'granted' ? 'Concedida' : diag.permissao === 'denied' ? 'Negada' : 'Não pedida'}
+                tone={diag.permissao === 'granted' ? 'green' : 'gray'}
+              />
+            </View>
+            <View className="flex-row items-center justify-between bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3 mb-2">
+              <Text className="text-gray-400 text-sm">Push remoto</Text>
+              <Badge
+                label={diag.tokenRegistrado ? 'Registrado' : diag.pushRemotoSuportado ? 'Sem token' : 'Indisponível'}
+                tone={diag.tokenRegistrado ? 'green' : 'gray'}
+              />
+            </View>
+
+            {diag.impedimento && (
+              <View className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 mb-3">
+                <Text className="text-amber-400 text-[11px]">{diag.impedimento}</Text>
+              </View>
+            )}
+
+            <Button
+              label={
+                !diag.pushRemotoSuportado ? 'Requer development build'
+                : enviandoTeste ? 'Enviando…'
+                : 'Enviar notificação de teste'
+              }
+              variant="outline"
+              disabled={!diag.pushRemotoSuportado || enviandoTeste}
+              onPress={async () => {
+                setEnviandoTeste(true);
+                try {
+                  await enviarNotificacaoTesteLocal();
+                  setDiag(await diagnosticoPush());
+                } catch (err: any) {
+                  Alert.alert('Não foi possível testar', err?.message ?? 'Erro desconhecido.');
+                } finally {
+                  setEnviandoTeste(false);
+                }
+              }}
+            />
+            <Text className="text-gray-600 text-[10px] mt-2 mb-3">
+              {diag.pushRemotoSuportado
+                ? 'Envia uma notificação local — testa permissão, canal e exibição. A entrega pelo servidor depende do push remoto acima.'
+                : 'O Expo Go do Android não embute o módulo de notificações. Instale o development build para habilitar este teste.'}
+            </Text>
+
+            <Button
+              label={enviandoServidor ? 'Enviando…' : 'Testar push pelo servidor'}
+              variant="outline"
+              disabled={!diag.tokenRegistrado || enviandoServidor}
+              onPress={async () => {
+                setEnviandoServidor(true);
+                try {
+                  const r = await enviarPushViaServidor({
+                    tipo: 'teste',
+                    titulo: '🔔 Pendix',
+                    mensagem: 'Push enviado pela Edge Function send-push.',
+                  });
+                  Alert.alert(
+                    r.ok ? 'Enviado pelo servidor' : 'Falha no envio',
+                    r.ok
+                      ? `Dispositivos: ${r.dispositivos ?? 0}\nTickets ok: ${r.tickets_ok ?? 0}\nTickets com erro: ${r.tickets_erro ?? 0}`
+                      : (r.erro ?? r.aviso ?? 'Erro desconhecido.'),
+                  );
+                } finally {
+                  setEnviandoServidor(false);
+                }
+              }}
+            />
+            <Text className="text-gray-600 text-[10px] mt-2">
+              Passa pela Edge Function: lê os tokens de pendix_dispositivos, envia pelo Expo e
+              registra o resultado em pendix_notificacoes. É o caminho que os eventos reais usam.
+            </Text>
+          </>
+        ) : (
+          <ActivityIndicator color="#a78bfa" />
+        )}
       </View>
 
       {/* Sair */}

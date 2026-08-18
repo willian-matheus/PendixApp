@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { setSessionUser } from '@/lib/session';
+import { registrarDispositivoPush, desativarDispositivoAtual } from '@/services/notificacoes';
 
 export type PlanType = 'normal' | 'pro';
 
@@ -93,6 +94,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessionUser(user);
   }, [user]);
 
+  // Registra o device para push assim que há um usuário. Best-effort: falhar
+  // aqui (Expo Go no Android, permissão negada, EAS ainda não configurado)
+  // nunca pode impedir o uso do app.
+  useEffect(() => {
+    if (!user) return;
+    let cancelado = false;
+    registrarDispositivoPush().then((res) => {
+      if (cancelado || res.ok) return;
+      console.warn('[Push] Dispositivo não registrado:', res.motivo, res.detalhe ?? '');
+    });
+    return () => { cancelado = true; };
+  }, [user?.id]);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
@@ -147,6 +161,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    // Antes do signOut: depois de encerrar a sessão a RLS bloqueia o update, e
+    // o device continuaria recebendo push de quem já saiu.
+    await desativarDispositivoAtual();
     await supabase.auth.signOut();
     setUser(null);
   };

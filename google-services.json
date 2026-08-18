@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "490477888801",
+    "project_id": "pendix-fa986",
+    "storage_bucket": "pendix-fa986.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:490477888801:android:db2101298382ea3d3f4a60",
+        "android_client_info": {
+          "package_name": "com.pendix.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBU0lpzEVHNCRkgIK0cn6AX7atK-uQAcVc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

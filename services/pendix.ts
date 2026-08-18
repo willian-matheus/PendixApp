@@ -195,6 +195,26 @@ export async function deletePendixPendencia(id: string) {
   if (error) throw error;
 }
 
+// ── Anexos (Supabase Storage) ───────────────────────────────────────────────
+
+export const BUCKET_ANEXOS = 'pendix-anexos';
+
+/**
+ * `arquivo_url` guarda o PATH dentro do bucket, não uma URL — no formato
+ * `{escritorio_id}/{cliente_id}/{timestamp}-{nome}`. O bucket é privado, então
+ * o download exige URL assinada; a policy de SELECT do storage confere se a
+ * primeira pasta do path é o escritório do usuário.
+ */
+export async function getUrlAssinadaAnexo(path: string, expiraEmSegundos = 300): Promise<string> {
+  const limpo = path.replace(/^\/+/, '');
+  const { data, error } = await supabase.storage
+    .from(BUCKET_ANEXOS)
+    .createSignedUrl(limpo, expiraEmSegundos);
+  if (error) throw error;
+  if (!data?.signedUrl) throw new Error('Storage não devolveu URL assinada.');
+  return data.signedUrl;
+}
+
 // ── Histórico ──────────────────────────────────────────────────────────────
 
 export async function getPendixHistorico(opts?: { clienteId?: string; pendenciaId?: string }) {
