@@ -2,10 +2,14 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    // Os módulos de lib/ importam uns aos outros com a extensão .ts explícita
+    // porque `npm test` roda direto no Node (ESM exige o caminho completo).
+    // Metro resolve igual, e com noEmit isto não muda a saída.
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./*"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx", "nativewind-env.d.ts"],
-  "exclude": ["node_modules", "supabase/functions"]
+  "exclude": ["node_modules", "supabase/functions", "**/*.test.ts"]
 }

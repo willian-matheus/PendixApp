@@ -1,0 +1,18 @@
+{
+  // Os testes rodam no Node (`npm test`), não no bundler do Expo — e o
+  // tsconfig do app resolve módulos com a condição "react-native", que não
+  // enxerga `node:test`. Daí um config próprio só para eles.
+  "compilerOptions": {
+    "strict": true,
+    "target": "ESNext",
+    // "preserve" trata os arquivos como ESM (é o que o Node faz ao detectar a
+    // sintaxe) — com "nodenext" o tsc os leria como CommonJS, já que o
+    // package.json do Expo não pode declarar "type": "module".
+    "module": "preserve",
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["lib/**/*.test.ts"]
+}

@@ -4,6 +4,8 @@ import { useRouter } from 'expo-router';
 import { X, Check, Paperclip } from 'lucide-react-native';
 import { getPendixClientes, postPendixPendencia, type PendixCliente, type PendixPendenciaTipo, type PendixPrioridade } from '@/services/pendix';
 import { getEmpresas, getVinculosEmpresa, type Empresa } from '@/services/empresasLocal';
+import { PERIODICIDADE_OPTS, PERIODICIDADE_PADRAO, PERIODICIDADE_LABEL, PERIODICIDADE_DESCRICAO, FREQUENCIA_COBRANCA_OPTS, ehRecorrente, type PendixPeriodicidade } from '@/lib/periodicidade';
+import { FREQUENCIA_COBRANCA_PADRAO, inicioDaCobranca } from '@/lib/cobranca';
 import { salvarPendenciaExtra } from '@/services/pendenciasExtra';
 import { Select } from '@/components/Select';
 import { Input } from '@/components/Input';
@@ -35,6 +37,9 @@ export default function NovaPendenciaScreen() {
   const [titulo, setTitulo] = useState('');
   const [descricao, setDescricao] = useState('');
   const [prioridade, setPrioridade] = useState<PendixPrioridade>('media');
+  const [periodicidade, setPeriodicidade] = useState<PendixPeriodicidade>(PERIODICIDADE_PADRAO);
+  const [cobrancaAutomatica, setCobrancaAutomatica] = useState(true);
+  const [cobrancaFrequencia, setCobrancaFrequencia] = useState<PendixPeriodicidade>(FREQUENCIA_COBRANCA_PADRAO);
   const [competencia, setCompetencia] = useState('');
   const [dataLimite, setDataLimite] = useState('');
   const [dataInicialCobranca, setDataInicialCobranca] = useState('');
@@ -92,6 +97,13 @@ export default function NovaPendenciaScreen() {
           prioridade,
           data_inicio_cobranca: dataInicialCobranca || undefined,
           horario_notificacao: horarioNotificacao,
+          periodicidade,
+          cobranca_automatica: cobrancaAutomatica,
+          cobranca_frequencia: cobrancaFrequencia,
+          // Mesma regra da ocorrência gerada por recorrência: sem data de
+          // início, a cobrança começa quando a competência começa — assim uma
+          // pendência aberta hoje para setembro não cobra o cliente em agosto.
+          proxima_cobranca_em: inicioDaCobranca({ data_inicio_cobranca: dataInicialCobranca, competencia }),
           datas_notificacao: datasNotificacaoValidas,
           arquivo_modelo_nome: anexoNome || undefined,
         });
@@ -210,12 +222,57 @@ export default function NovaPendenciaScreen() {
 
           <Select label="Prioridade" value={prioridade} onChange={setPrioridade} options={PRIORIDADE_OPTS} />
 
+          <Select label="Periodicidade" value={periodicidade} onChange={setPeriodicidade} options={PERIODICIDADE_OPTS} containerClassName="mb-2" />
+          <Text className="text-gray-500 text-[11px] mb-5 leading-4">
+            {ehRecorrente(periodicidade)
+              ? `${PERIODICIDADE_LABEL[periodicidade]} — ${PERIODICIDADE_DESCRICAO[periodicidade]}. Ao marcar como recebida, a próxima ocorrência é criada sozinha, com competência e datas já avançadas.`
+              : 'Evento único: quando for recebida, acabou.'}
+          </Text>
+
           <Input label="Competência (AAAA-MM)" value={competencia} onChangeText={setCompetencia} placeholder="2026-08" />
           <Input label="Data de vencimento (AAAA-MM-DD, opcional)" value={dataLimite} onChangeText={setDataLimite} placeholder="2026-08-15" />
           <Input label="Data inicial da cobrança (AAAA-MM-DD, opcional)" value={dataInicialCobranca} onChangeText={setDataInicialCobranca} placeholder="2026-08-01" />
           <Input
             label="Horário de notificação (HH:MM)" value={horarioNotificacao} onChangeText={setHorarioNotificacao} placeholder="09:00"
           />
+
+          {/* Cobrança automática — quem precisa entregar o documento é o
+              cliente, então é o WhatsApp dele que recebe a mensagem. */}
+          <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-5">
+            <Pressable onPress={() => setCobrancaAutomatica((v) => !v)} className="flex-row items-center gap-2.5">
+              <View
+                className="w-4 h-4 rounded items-center justify-center"
+                style={{ borderWidth: 1, borderColor: cobrancaAutomatica ? '#9333ea' : 'rgba(255,255,255,0.2)', backgroundColor: cobrancaAutomatica ? '#9333ea' : 'transparent' }}
+              >
+                {cobrancaAutomatica && <Check size={11} color="#fff" />}
+              </View>
+              <Text className="text-sm text-white font-semibold flex-1">Cobrar o cliente automaticamente</Text>
+            </Pressable>
+
+            {cobrancaAutomatica ? (
+              <>
+                <Text className="text-gray-500 text-[11px] leading-4 mt-2 mb-3">
+                  O agente manda a cobrança no WhatsApp do cliente sozinho, subindo o tom conforme o
+                  atraso, até o documento chegar ou o teto de reenvios do escritório ser atingido.
+                </Text>
+                <Select
+                  label="Repetir a cobrança"
+                  value={cobrancaFrequencia}
+                  onChange={setCobrancaFrequencia}
+                  options={FREQUENCIA_COBRANCA_OPTS}
+                  containerClassName="mb-2"
+                />
+                <Text className="text-gray-500 text-[11px] leading-4">
+                  {PERIODICIDADE_LABEL[cobrancaFrequencia]} — {PERIODICIDADE_DESCRICAO[cobrancaFrequencia]}.
+                  {' '}A primeira sai na data inicial acima; em branco, no primeiro dia da competência.
+                </Text>
+              </>
+            ) : (
+              <Text className="text-gray-500 text-[11px] leading-4 mt-2">
+                Só o contato inicial e os lembretes marcados abaixo. Ninguém mais é cobrado sozinho.
+              </Text>
+            )}
+          </View>
 
           <Pressable
             onPress={() => setNotificarMultiplasVezes((v) => !v)}

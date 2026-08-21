@@ -4,6 +4,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Plus, Search, ChevronRight, SlidersHorizontal, X } from 'lucide-react-native';
 import { getPendixPendencias, getPendixClientes, type PendixPendencia, type PendixPendenciaStatus, type PendixCliente, type PendixPrioridade } from '@/services/pendix';
 import { getEmpresas, getVinculosEmpresa, type Empresa } from '@/services/empresasLocal';
+import { PERIODICIDADE_LABEL, ehRecorrente } from '@/lib/periodicidade';
 import { Badge } from '@/components/Badge';
 import { EmptyState } from '@/components/EmptyState';
 import { Loader } from '@/components/Loader';
@@ -180,6 +181,9 @@ export default function PendenciasListScreen() {
                   <View className="flex-row items-center gap-2 mt-2">
                     <Badge label={s.label} tone={s.tone} />
                     {!!prio && <Badge label={PRIORIDADE_OPTS.find((p) => p.value === prio)?.label ?? prio} tone={prio === 'urgente' || prio === 'alta' ? 'red' : 'gray'} />}
+                    {ehRecorrente(item.periodicidade) && (
+                      <Badge label={PERIODICIDADE_LABEL[item.periodicidade!]} tone="purple" />
+                    )}
                     <Text className="text-gray-600 text-[11px]">Prazo {formatDate(item.data_limite)}</Text>
                   </View>
                 </View>

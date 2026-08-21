@@ -3,12 +3,17 @@ import { View, Text, ScrollView, Pressable, Alert, ActivityIndicator, Linking } 
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import {
   ArrowLeft, User, Calendar, FileText, Check, Send, MessageCircle, FileCheck, PartyPopper, Paperclip,
-  Download,
+  Download, Repeat, Megaphone, BellOff,
 } from 'lucide-react-native';
 import {
   getPendixPendencia, getPendixConversaMensagens, updatePendixPendenciaStatus, getUrlAssinadaAnexo,
-  type PendixPendencia, type PendixMensagem,
+  getPendixConfiguracaoCobranca, setCobrancaAutomatica,
+  type PendixPendencia, type PendixMensagem, type PendixConfiguracaoCobranca,
 } from '@/services/pendix';
+import {
+  calcularProximaOcorrencia, descreverPeriodicidade, ehRecorrente,
+} from '@/lib/periodicidade';
+import { decidirCobranca, descreverCobranca, MOTIVO_TEXTO } from '@/lib/cobranca';
 import { Badge } from '@/components/Badge';
 import { Loader } from '@/components/Loader';
 
@@ -64,6 +69,17 @@ function AnexoLinha({ nome, path, legenda }: { nome: string; path?: string; lege
   );
 }
 
+/** "Agora" no fuso do aparelho, no formato que lib/cobranca.ts espera. */
+function agoraLocal() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    data: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    minutos: d.getHours() * 60 + d.getMinutes(),
+    iso: d.toISOString(),
+  };
+}
+
 function formatHorario(horario?: string) {
   return horario ? horario.slice(0, 5) : '—';
 }
@@ -94,15 +110,18 @@ export default function PendenciaDetalheScreen() {
   const [mensagens, setMensagens] = useState<PendixMensagem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [regras, setRegras] = useState<PendixConfiguracaoCobranca | null>(null);
+  const [alternandoCobranca, setAlternandoCobranca] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [p, conversa] = await Promise.all([
-        getPendixPendencia(id), getPendixConversaMensagens(id),
+      const [p, conversa, cfg] = await Promise.all([
+        getPendixPendencia(id), getPendixConversaMensagens(id), getPendixConfiguracaoCobranca(),
       ]);
       setPendencia(p);
       setMensagens(conversa.mensagens);
+      setRegras(cfg);
     } catch (err) {
       console.error('[PendenciaDetalhe] Falha ao carregar:', err);
     } finally {
@@ -125,6 +144,18 @@ export default function PendenciaDetalheScreen() {
     }
   }
 
+  async function alternarCobranca(ligar: boolean) {
+    if (!id) return;
+    setAlternandoCobranca(true);
+    try {
+      setPendencia(await setCobrancaAutomatica(id, ligar));
+    } catch (err: any) {
+      Alert.alert('Erro', err.message || 'Não foi possível alterar a cobrança automática.');
+    } finally {
+      setAlternandoCobranca(false);
+    }
+  }
+
   if (loading) return <Loader style={{ flex: 1 }} />;
 
   if (!pendencia) {
@@ -134,6 +165,51 @@ export default function PendenciaDetalheScreen() {
       </View>
     );
   }
+
+  const recorrencia = (() => {
+    if (!ehRecorrente(pendencia.periodicidade)) return null;
+    const descricao = descreverPeriodicidade(pendencia.periodicidade)!;
+    // A competência inválida faz `calcularProximaOcorrencia` lançar — aqui é
+    // só uma prévia informativa, então uma pendência velha sem competência
+    // padrão não deve derrubar a tela.
+    // Depois de recebida a próxima ocorrência já existe de verdade; anunciar
+    // "próxima competência" aqui apontaria para uma pendência que já está na
+    // lista, como se ainda fosse nascer.
+    if (pendencia.status !== 'pendente') return { descricao, proximaCompetencia: undefined };
+    try {
+      return { descricao, proximaCompetencia: calcularProximaOcorrencia(pendencia)?.competencia };
+    } catch {
+      return { descricao, proximaCompetencia: undefined };
+    }
+  })();
+
+  // Por que o cliente (não) vai ser cobrado — a MESMA regra que o cron roda,
+  // então a tela nunca promete uma cobrança que não vai sair.
+  const cobranca = (() => {
+    if (!regras) return null;
+    const decisao = decidirCobranca(
+      {
+        status: pendencia.status,
+        cobranca_automatica: pendencia.cobranca_automatica,
+        cobranca_frequencia: pendencia.cobranca_frequencia,
+        proxima_cobranca_em: pendencia.proxima_cobranca_em,
+        cobrancas_enviadas: pendencia.cobrancas_enviadas,
+        horario_notificacao: pendencia.horario_notificacao,
+        data_inicio_cobranca: pendencia.data_inicio_cobranca,
+        ultima_mensagem_enviada_em: pendencia.ultima_mensagem_enviada_em,
+        cliente: pendencia.pendix_clientes,
+      },
+      regras,
+      agoraLocal(),
+    );
+    return {
+      resumo: descreverCobranca(pendencia, regras.max_reenvios),
+      // Só vale avisar de bloqueio enquanto a pendência ainda está de pé.
+      impedimento: !decisao.cobrar && pendencia.status === 'pendente' && decisao.motivo
+        && !['ainda_nao_e_dia', 'antes_do_horario', 'fora_da_janela', 'em_cooldown'].includes(decisao.motivo)
+        ? MOTIVO_TEXTO[decisao.motivo] : null,
+    };
+  })();
 
   const mensagemAgente = mensagens.find((m) => m.remetente === 'agente');
   const mensagemCliente = mensagens.find((m) => m.remetente === 'cliente');
@@ -177,7 +253,17 @@ export default function PendenciaDetalheScreen() {
             {!!pendencia.datas_notificacao?.length && ` · lembretes em ${pendencia.datas_notificacao.map(formatDate).join(', ')}`}
           </Text>
         </View>
+        {recorrencia && (
+          <View className="flex-row items-center gap-2 mt-2.5">
+            <Repeat size={14} color="#6b7280" />
+            <Text className="text-gray-400 text-xs flex-1">
+              {recorrencia.descricao}
+              {recorrencia.proximaCompetencia && ` · próxima competência ${recorrencia.proximaCompetencia}`}
+            </Text>
+          </View>
+        )}
         <View className="flex-row flex-wrap gap-2 mt-3">
+          {!!pendencia.recorrencia_pai_id && <Badge label="Gerada pela recorrência" tone="blue" />}
           {!!pendencia.nivel_cobranca_atual && (
             <Badge label={NIVEL_LABEL[pendencia.nivel_cobranca_atual] ?? pendencia.nivel_cobranca_atual} tone="purple" />
           )}
@@ -186,6 +272,38 @@ export default function PendenciaDetalheScreen() {
           )}
         </View>
       </View>
+
+      {/* Cobrança automática — quem tem de enviar o documento é o cliente. */}
+      {!!cobranca && (
+        <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 mb-4">
+          <View className="flex-row items-center gap-2 mb-1.5">
+            {pendencia.cobranca_automatica === false
+              ? <BellOff size={14} color="#6b7280" />
+              : <Megaphone size={14} color="#a78bfa" />}
+            <Text className="text-white text-sm font-semibold flex-1">Cobrança automática</Text>
+          </View>
+          <Text className="text-gray-400 text-xs">{cobranca.resumo}</Text>
+          <Text className="text-gray-600 text-[11px] mt-1">
+            Enviada no WhatsApp de {pendencia.pendix_clientes?.nome ?? 'cliente'}
+            {pendencia.pendix_clientes?.telefone ? ` (${pendencia.pendix_clientes.telefone})` : ''}.
+          </Text>
+          {!!cobranca.impedimento && (
+            <Text className="text-yellow-500/90 text-[11px] mt-2 leading-4">⚠ {cobranca.impedimento}</Text>
+          )}
+          {pendencia.status === 'pendente' && (
+            <Pressable
+              onPress={() => alternarCobranca(pendencia.cobranca_automatica === false)}
+              disabled={alternandoCobranca}
+              className="border border-white/10 rounded-xl py-2.5 items-center mt-3"
+              style={{ opacity: alternandoCobranca ? 0.6 : 1 }}
+            >
+              <Text className="text-gray-300 text-xs font-semibold">
+                {pendencia.cobranca_automatica === false ? 'Ligar cobrança automática' : 'Desligar cobrança automática'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
 
       {pendencia.status === 'pendente' && (
         <Pressable

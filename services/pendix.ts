@@ -1,5 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import { isSuperAdmin, sessionOfficeId } from '@/lib/session';
+import { calcularProximaOcorrencia, ehRecorrente, type PendixPeriodicidade } from '@/lib/periodicidade';
+import { FREQUENCIA_COBRANCA_PADRAO, inicioDaCobranca, REGRAS_COBRANCA_PADRAO } from '@/lib/cobranca';
+
+export type { PendixPeriodicidade };
 
 // ── Types (espelham server/migrations/pendix/pendix_schema.sql + 021_pendix_agente_whatsapp.sql) ──
 
@@ -54,9 +58,17 @@ export interface PendixPendencia {
   arquivo_modelo_nome?: string;
   datas_notificacao?: string[];
   datas_notificacao_enviadas?: string[];
+  periodicidade?: PendixPeriodicidade;
+  /** Pendência que originou esta ocorrência (null quando foi criada à mão). */
+  recorrencia_pai_id?: string | null;
+  /** Cobrança automática do cliente — ver lib/cobranca.ts. */
+  cobranca_automatica?: boolean;
+  cobranca_frequencia?: PendixPeriodicidade;
+  proxima_cobranca_em?: string | null;
+  cobrancas_enviadas?: number;
   created_at: string;
   updated_at: string;
-  pendix_clientes?: { id?: string; nome: string; responsavel?: string; telefone?: string };
+  pendix_clientes?: { id?: string; nome: string; responsavel?: string; telefone?: string; consentimento_whatsapp?: boolean | null };
   pendix_documentos_config?: { descricao_whatsapp?: string; arquivo_modelo_url?: string; arquivo_modelo_nome?: string; prioridade?: string } | null;
 }
 
@@ -134,7 +146,7 @@ export async function deletePendixCliente(id: string) {
 
 // ── Pendências ──────────────────────────────────────────────────────────────
 
-const PENDENCIA_SELECT = '*, pendix_clientes(id, nome, responsavel, telefone), pendix_documentos_config(descricao_whatsapp, arquivo_modelo_url, arquivo_modelo_nome, prioridade)';
+const PENDENCIA_SELECT = '*, pendix_clientes(id, nome, responsavel, telefone, consentimento_whatsapp), pendix_documentos_config(descricao_whatsapp, arquivo_modelo_url, arquivo_modelo_nome, prioridade)';
 
 export async function getPendixPendencias(filters?: {
   clienteId?: string; status?: string; competencia?: string; search?: string;
@@ -185,9 +197,101 @@ export async function updatePendixPendenciaStatus(id: string, status: PendixPend
   const payload: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
   if (status === 'recebido') payload.data_recebimento = new Date().toISOString();
   if (obs !== undefined) payload.observacoes = obs;
-  const { data, error } = await supabase.from('pendix_pendencias').update(payload).eq('id', id).select().single();
+  const { data, error } = await supabase.from('pendix_pendencias')
+    .update(payload).eq('id', id).select(PENDENCIA_SELECT).single();
+  if (error) throw error;
+  const atualizada = data as PendixPendencia;
+
+  // Fechou o ciclo de uma recorrente → abre o próximo. Best-effort: se falhar,
+  // o documento continua marcado como recebido (o que o usuário pediu) e a
+  // próxima ocorrência pode ser gerada de novo no próximo "recebido" ou à mão.
+  if (status === 'recebido') {
+    try {
+      await gerarProximaOcorrencia(atualizada);
+    } catch (err) {
+      console.warn('[Pendências] Falha ao gerar a próxima ocorrência:', err);
+    }
+  }
+
+  return atualizada;
+}
+
+/**
+ * Liga/desliga a cobrança automática de uma pendência.
+ *
+ * Religar NÃO zera `cobrancas_enviadas` de propósito: o teto de reenvios é do
+ * escritório, e um liga-desliga não pode ser um jeito de furá-lo. Se o teto já
+ * foi batido, a tela avisa em vez de prometer uma cobrança que não sai.
+ */
+export async function setCobrancaAutomatica(id: string, ligada: boolean): Promise<PendixPendencia> {
+  const { data, error } = await supabase
+    .from('pendix_pendencias')
+    .update({ cobranca_automatica: ligada, updated_at: new Date().toISOString() })
+    .eq('id', id).select(PENDENCIA_SELECT).single();
   if (error) throw error;
   return data as PendixPendencia;
+}
+
+/**
+ * Cria a ocorrência seguinte de uma pendência recorrente, copiando o que
+ * define o "molde" (cliente, documento, prioridade, anexo de exemplo) e
+ * avançando as datas conforme a periodicidade.
+ *
+ * Devolve `null` quando não há o que gerar: pendência única, ou uma sucessora
+ * que já existe. O índice único em `recorrencia_pai_id` é quem realmente
+ * garante isso — a checagem antes é só para evitar o round-trip inútil, e a
+ * violação (23505) é tratada como "outro já gerou", não como erro.
+ */
+export async function gerarProximaOcorrencia(p: PendixPendencia): Promise<PendixPendencia | null> {
+  if (!ehRecorrente(p.periodicidade)) return null;
+
+  const proxima = calcularProximaOcorrencia(p);
+  if (!proxima) return null;
+
+  const { data: existente, error: errExistente } = await supabase
+    .from('pendix_pendencias').select('id').eq('recorrencia_pai_id', p.id).maybeSingle();
+  if (errExistente) throw errExistente;
+  if (existente) return null;
+
+  const { data, error } = await supabase.from('pendix_pendencias').insert({
+    escritorio_id: p.escritorio_id,
+    cliente_id: p.cliente_id,
+    documento_id: p.documento_id ?? null,
+    nome_documento: p.nome_documento,
+    competencia: proxima.competencia,
+    status: 'pendente',
+    tipo: p.tipo ?? 'cliente',
+    descricao: p.descricao ?? null,
+    prioridade: p.prioridade ?? 'media',
+    data_limite: proxima.data_limite ?? null,
+    data_inicio_cobranca: proxima.data_inicio_cobranca ?? null,
+    horario_notificacao: p.horario_notificacao ?? '09:00',
+    datas_notificacao: proxima.datas_notificacao,
+    // `datas_notificacao_enviadas` fica vazia de propósito: o ciclo novo ainda
+    // não teve lembrete nenhum enviado.
+    arquivo_modelo_url: p.arquivo_modelo_url ?? null,
+    arquivo_modelo_nome: p.arquivo_modelo_nome ?? null,
+    origem: p.origem ?? 'manual',
+    periodicidade: p.periodicidade,
+    recorrencia_pai_id: p.id,
+    // O ciclo novo herda a configuração de cobrança, mas com o contador
+    // zerado: o teto de reenvios é por ocorrência, não por recorrência.
+    cobranca_automatica: p.cobranca_automatica ?? true,
+    cobranca_frequencia: p.cobranca_frequencia ?? FREQUENCIA_COBRANCA_PADRAO,
+    cobrancas_enviadas: 0,
+    // Nunca nulo aqui: o cron lê nulo como "cobrar agora", e o cliente levaria
+    // hoje a cobrança do documento do mês que vem.
+    proxima_cobranca_em: inicioDaCobranca(proxima),
+  }).select().single();
+
+  if (error) {
+    if ((error as { code?: string }).code === '23505') return null; // outro cliente já gerou
+    throw error;
+  }
+
+  const nova = data as PendixPendencia;
+  void notificarAgenteNovaPendencia(nova);
+  return nova;
 }
 
 export async function deletePendixPendencia(id: string) {
@@ -284,11 +388,8 @@ export interface PendixConfiguracaoCobranca {
   ativo: boolean;
 }
 
-const CONFIG_COBRANCA_DEFAULT: Omit<PendixConfiguracaoCobranca, 'escritorio_id'> = {
-  dias_amigavel: 2, dias_lembrete: 7, dias_urgente: 15,
-  horario_inicio: '08:00', horario_fim: '19:00',
-  max_reenvios: 4, cooldown_horas: 24, ativo: true,
-};
+// Uma lista só destes números, em lib/cobranca.ts — o cron usa a mesma.
+const CONFIG_COBRANCA_DEFAULT: Omit<PendixConfiguracaoCobranca, 'escritorio_id'> = REGRAS_COBRANCA_PADRAO;
 
 export async function getPendixConfiguracaoCobranca(): Promise<PendixConfiguracaoCobranca> {
   const eid = sessionOfficeId() ?? '';

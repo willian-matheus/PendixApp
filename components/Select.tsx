@@ -1,12 +1,13 @@
 import { View, Text, Pressable } from 'react-native';
 
 export function Select<T extends string>({
-  label, options, value, onChange,
+  label, options, value, onChange, containerClassName = 'mb-4',
 }: {
   label?: string; options: { value: T; label: string }[]; value: T; onChange: (v: T) => void;
+  containerClassName?: string;
 }) {
   return (
-    <View className="mb-4">
+    <View className={containerClassName}>
       {!!label && <Text className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-2">{label}</Text>}
       <View className="flex-row flex-wrap gap-2">
         {options.map((o) => {
