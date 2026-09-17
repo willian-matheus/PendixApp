@@ -9,7 +9,7 @@ import {
   getPendixClientes, postPendixCliente, updatePendixCliente, deletePendixCliente,
   type PendixCliente, type PendixRegime, type PendixClienteStatus, type PendixClienteTipo,
 } from '@/services/pendix';
-import { getEmpresas, getVinculosEmpresa, setVinculoEmpresa, type Empresa } from '@/services/empresasLocal';
+import { getEmpresas, type Empresa } from '@/services/empresas';
 import { Badge } from '@/components/Badge';
 import { EmptyState } from '@/components/EmptyState';
 import { Loader } from '@/components/Loader';
@@ -49,7 +49,6 @@ function iniciais(nome: string) {
 export default function ClientesScreen() {
   const [clientes, setClientes] = useState<PendixCliente[]>([]);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
-  const [vinculos, setVinculos] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
@@ -67,10 +66,9 @@ export default function ClientesScreen() {
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
-      const [cli, emp, vinc] = await Promise.all([getPendixClientes(), getEmpresas(), getVinculosEmpresa()]);
+      const [cli, emp] = await Promise.all([getPendixClientes(), getEmpresas()]);
       setClientes(cli);
       setEmpresas(emp);
-      setVinculos(vinc);
     } catch (err) {
       console.error('[Clientes] Falha ao carregar:', err);
     } finally {
@@ -94,7 +92,7 @@ export default function ClientesScreen() {
         email: cliente.email, regime: cliente.regime, status: cliente.status,
         tipo: cliente.tipo ?? 'pessoa', observacoes: cliente.observacoes ?? '',
       });
-      setEmpresaVinculadaId(vinculos[cliente.id] ?? null);
+      setEmpresaVinculadaId(cliente.empresa_id ?? null);
     } else {
       setEditando(null);
       setForm(EMPTY);
@@ -109,23 +107,14 @@ export default function ClientesScreen() {
     setSaving(true);
     setError('');
     try {
-      let clienteId: string;
+      const payload = { ...form, empresa_id: empresaVinculadaId };
       if (editando) {
-        const atualizado = await updatePendixCliente(editando.id, form);
+        const atualizado = await updatePendixCliente(editando.id, payload);
         setClientes((prev) => prev.map((c) => (c.id === editando.id ? atualizado : c)));
-        clienteId = editando.id;
       } else {
-        const novo = await postPendixCliente({ ...form, escritorio_id: '' });
+        const novo = await postPendixCliente({ ...payload, escritorio_id: '' });
         setClientes((prev) => [novo, ...prev]);
-        clienteId = novo.id;
       }
-      await setVinculoEmpresa(clienteId, empresaVinculadaId);
-      setVinculos((prev) => {
-        const next = { ...prev };
-        if (empresaVinculadaId) next[clienteId] = empresaVinculadaId;
-        else delete next[clienteId];
-        return next;
-      });
       setModalOpen(false);
     } catch (err: any) {
       setError(err.message || 'Erro ao salvar cliente.');
@@ -157,10 +146,9 @@ export default function ClientesScreen() {
     return matchesSearch && matchesStatus;
   });
 
-  function empresaNome(clienteId: string) {
-    const empId = vinculos[clienteId];
-    if (!empId) return null;
-    return empresas.find((e) => e.id === empId)?.nome ?? null;
+  function empresaNome(empresaId?: string | null) {
+    if (!empresaId) return null;
+    return empresas.find((e) => e.id === empresaId)?.nome ?? null;
   }
 
   return (
@@ -221,7 +209,7 @@ export default function ClientesScreen() {
           renderItem={({ item }) => {
             const s = STATUS_STYLE[item.status];
             const TipoIcon = (item.tipo ?? 'pessoa') === 'empresa' ? Building2 : UserIcon;
-            const vinculada = empresaNome(item.id);
+            const vinculada = empresaNome(item.empresa_id);
             return (
               <View className="bg-white/[0.04] border border-white/10 rounded-2xl p-4 flex-row items-center">
                 <View className="w-9 h-9 rounded-full bg-purple-500/15 items-center justify-center mr-3">
@@ -420,10 +408,10 @@ export default function ClientesScreen() {
                       <Text className="text-gray-300 text-sm">{viewing.responsavel}</Text>
                     </View>
                   )}
-                  {!!empresaNome(viewing.id) && (
+                  {!!empresaNome(viewing.empresa_id) && (
                     <View className="flex-row items-center gap-2">
                       <Building2 size={13} color="#6b7280" />
-                      <Text className="text-gray-300 text-sm">{empresaNome(viewing.id)}</Text>
+                      <Text className="text-gray-300 text-sm">{empresaNome(viewing.empresa_id)}</Text>
                     </View>
                   )}
                 </View>

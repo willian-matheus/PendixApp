@@ -5,7 +5,7 @@ import { Plus, Search, Building2, Trash2, Pencil, Eye, ChevronLeft, Phone, Mail 
 import {
   getEmpresas, criarEmpresa, atualizarEmpresa, excluirEmpresa,
   type Empresa, type EmpresaStatus,
-} from '@/services/empresasLocal';
+} from '@/services/empresas';
 import { BottomSheetModal } from '@/components/Modal';
 import { Input } from '@/components/Input';
 import { Select } from '@/components/Select';

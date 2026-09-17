@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Building2, Calendar, History, Bell, Settings, LogOut, ChevronRight } from 'lucide-react-native';
+import { Building2, Calendar, History, Bell, Settings, LogOut, ChevronRight, CreditCard, Wallet } from 'lucide-react-native';
 import { useAuth } from '@/context/AuthContext';
 
 function iniciais(nome: string) {
@@ -19,9 +19,12 @@ function MenuRow({ icon: Icon, label, tint, onPress }: { icon: any; label: strin
   );
 }
 
+const ROLES_CONTRATANTES = ['admin', 'master', 'super_admin'];
+
 export default function MaisScreen() {
   const { user, signOut } = useAuth();
   const router = useRouter();
+  const podeVerContratantes = !!user?.role && ROLES_CONTRATANTES.includes(user.role);
 
   return (
     <ScrollView className="flex-1 bg-pendix-bg" contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 48 }}>
@@ -39,6 +42,10 @@ export default function MaisScreen() {
       </View>
 
       <MenuRow icon={Building2} label="Empresas" tint="#60a5fa" onPress={() => router.push('/(app)/empresas')} />
+      {podeVerContratantes && (
+        <MenuRow icon={CreditCard} label="Contratantes" tint="#34d399" onPress={() => router.push('/(app)/contratantes')} />
+      )}
+      <MenuRow icon={Wallet} label="Assinatura" tint="#facc15" onPress={() => router.push('/(app)/assinatura')} />
       <MenuRow icon={Calendar} label="Calendário" tint="#a78bfa" onPress={() => router.push('/(app)/calendario')} />
       <MenuRow icon={History} label="Histórico" tint="#60a5fa" onPress={() => router.push('/(app)/historico')} />
       <MenuRow icon={Bell} label="Alertas" tint="#facc15" onPress={() => router.push('/(app)/notificacoes')} />

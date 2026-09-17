@@ -4,9 +4,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // notificação, datas de notificação extra e anexo de exemplo agora são
 // colunas reais em pendix_pendencias (mesmo schema usado pelo PendixWeb —
 // ver supabase/migrations/0011, 0013 e 0014 do site). O que resta aqui é só
-// o vínculo com "empresa" (agrupador que ainda vive só no dispositivo, sem
-// tabela no Supabase — ver services/empresasLocal.ts), no mesmo espírito do
-// site (ver "Extras locais da pendência" em pendix.ts do PendixWeb).
+// qual empresa (ver services/empresas.ts) originou o lote de uma pendência
+// tipo 'empresa' — pendix_pendencias não tem coluna própria pra isso, então
+// fica guardado local, no mesmo espírito do site (ver "Extras locais da
+// pendência" em pendix.ts do PendixWeb).
 
 const STORAGE_KEY = '@pendix/pendencias_extra';
 

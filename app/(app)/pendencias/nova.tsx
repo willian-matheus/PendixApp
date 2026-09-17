@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-nativ
 import { useRouter } from 'expo-router';
 import { X, Check, Paperclip } from 'lucide-react-native';
 import { getPendixClientes, postPendixPendencia, type PendixCliente, type PendixPendenciaTipo, type PendixPrioridade } from '@/services/pendix';
-import { getEmpresas, getVinculosEmpresa, type Empresa } from '@/services/empresasLocal';
+import { getEmpresas, type Empresa } from '@/services/empresas';
 import { PERIODICIDADE_OPTS, PERIODICIDADE_PADRAO, PERIODICIDADE_LABEL, PERIODICIDADE_DESCRICAO, FREQUENCIA_COBRANCA_OPTS, ehRecorrente, type PendixPeriodicidade } from '@/lib/periodicidade';
 import { FREQUENCIA_COBRANCA_PADRAO, inicioDaCobranca } from '@/lib/cobranca';
 import { salvarPendenciaExtra } from '@/services/pendenciasExtra';
@@ -25,7 +25,6 @@ export default function NovaPendenciaScreen() {
   const router = useRouter();
   const [clientes, setClientes] = useState<PendixCliente[]>([]);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
-  const [vinculos, setVinculos] = useState<Record<string, string>>({});
   const [loadingDados, setLoadingDados] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -50,13 +49,13 @@ export default function NovaPendenciaScreen() {
   const [observacaoInterna, setObservacaoInterna] = useState('');
 
   useEffect(() => {
-    Promise.all([getPendixClientes(), getEmpresas(), getVinculosEmpresa()])
-      .then(([cli, emp, vinc]) => { setClientes(cli); setEmpresas(emp); setVinculos(vinc); })
+    Promise.all([getPendixClientes(), getEmpresas()])
+      .then(([cli, emp]) => { setClientes(cli); setEmpresas(emp); })
       .catch((err) => console.error('[NovaPendencia] Falha ao carregar dados:', err))
       .finally(() => setLoadingDados(false));
   }, []);
 
-  const clientesDaEmpresa = empresaId ? clientes.filter((c) => vinculos[c.id] === empresaId) : [];
+  const clientesDaEmpresa = empresaId ? clientes.filter((c) => c.empresa_id === empresaId) : [];
 
   async function handleCriar() {
     if (!titulo.trim()) { Alert.alert('Falta o título', 'Informe o título da pendência.'); return; }

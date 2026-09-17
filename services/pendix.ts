@@ -27,6 +27,7 @@ export interface PendixCliente {
   observacoes: string;
   tipo?: PendixClienteTipo;
   consentimento_whatsapp?: boolean;
+  empresa_id?: string | null;
   created_at: string;
   updated_at: string;
 }

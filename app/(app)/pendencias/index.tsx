@@ -3,7 +3,7 @@ import { View, Text, FlatList, Pressable, TextInput, RefreshControl } from 'reac
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Plus, Search, ChevronRight, SlidersHorizontal, X } from 'lucide-react-native';
 import { getPendixPendencias, getPendixClientes, type PendixPendencia, type PendixPendenciaStatus, type PendixCliente, type PendixPrioridade } from '@/services/pendix';
-import { getEmpresas, getVinculosEmpresa, type Empresa } from '@/services/empresasLocal';
+import { getEmpresas, type Empresa } from '@/services/empresas';
 import { PERIODICIDADE_LABEL, ehRecorrente } from '@/lib/periodicidade';
 import { Badge } from '@/components/Badge';
 import { EmptyState } from '@/components/EmptyState';
@@ -46,7 +46,6 @@ export default function PendenciasListScreen() {
   const [items, setItems] = useState<PendixPendencia[]>([]);
   const [clientes, setClientes] = useState<PendixCliente[]>([]);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
-  const [vinculos, setVinculos] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [status, setStatus] = useState<PendixPendenciaStatus | undefined>(undefined);
@@ -61,16 +60,14 @@ export default function PendenciasListScreen() {
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
-      const [rows, cli, emp, vinc] = await Promise.all([
+      const [rows, cli, emp] = await Promise.all([
         getPendixPendencias({ status, search: search || undefined }),
         getPendixClientes(),
         getEmpresas(),
-        getVinculosEmpresa(),
       ]);
       setItems(rows);
       setClientes(cli);
       setEmpresas(emp);
-      setVinculos(vinc);
     } catch (err) {
       console.error('[Pendências] Falha ao carregar:', err);
     } finally {
@@ -99,15 +96,21 @@ export default function PendenciasListScreen() {
     setVencimentoAte('');
   }
 
+  const empresaIdDoCliente = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of clientes) if (c.empresa_id) map[c.id] = c.empresa_id;
+    return map;
+  }, [clientes]);
+
   const filtered = useMemo(() => {
     return items.filter((p) => {
       if (prioridadeFiltro !== 'todas' && (p.prioridade ?? 'media') !== prioridadeFiltro) return false;
       if (clienteFiltro && p.cliente_id !== clienteFiltro) return false;
-      if (empresaFiltro && vinculos[p.cliente_id] !== empresaFiltro) return false;
+      if (empresaFiltro && empresaIdDoCliente[p.cliente_id] !== empresaFiltro) return false;
       if (vencimentoAte && (!p.data_limite || p.data_limite > vencimentoAte)) return false;
       return true;
     });
-  }, [items, vinculos, prioridadeFiltro, clienteFiltro, empresaFiltro, vencimentoAte]);
+  }, [items, empresaIdDoCliente, prioridadeFiltro, clienteFiltro, empresaFiltro, vencimentoAte]);
 
   return (
     <View className="flex-1 bg-pendix-bg" style={{ paddingTop: 60 }}>

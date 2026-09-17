@@ -10,7 +10,7 @@ import {
   getPendixStats, getPendixPendenciasPorStatusEMes, getPendixHistorico, getPendixPendencias,
   type PendixPendenciaStatus, type PendixPrioridade,
 } from '@/services/pendix';
-import { getEmpresas } from '@/services/empresasLocal';
+import { getEmpresas } from '@/services/empresas';
 import { cfgFor, daysLabel } from '@/lib/historicoAcoes';
 import { Loader } from '@/components/Loader';
 
